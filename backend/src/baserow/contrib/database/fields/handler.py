@@ -795,6 +795,16 @@ class FieldHandler(metaclass=baserow_trace_methods(tracer)):
         ):
             SelectOption.objects.filter(field_id=field.id).delete()
 
+        # Clear field metadata when the field type changes
+        if baserow_field_type_changed:
+            from baserow.contrib.database.fields.metadata_handler import (
+                FieldMetadataHandler,
+            )
+
+            model = field.table.get_model(field_ids=[], add_dependencies=False)
+            if FieldMetadataHandler.is_metadata_enabled(model):
+                FieldMetadataHandler.delete_field_metadata(model, field.id)
+
         to_field_type.after_update(
             old_field,
             field,
@@ -960,6 +970,16 @@ class FieldHandler(metaclass=baserow_trace_methods(tracer)):
 
         if duplicate_data and field_type.keep_data_on_duplication:
             FieldDataBackupHandler.duplicate_field_data(field, new_field)
+
+            # Remap field metadata from old field ID to new field ID
+            from baserow.contrib.database.fields.metadata_handler import (
+                FieldMetadataHandler,
+            )
+
+            FieldMetadataHandler.remap_field_id(
+                old_field=field, new_field=new_field
+            )
+
         progress.increment()
 
         return new_field, updated_fields
@@ -1036,6 +1056,15 @@ class FieldHandler(metaclass=baserow_trace_methods(tracer)):
             user=user,
             allow_deleting_primary=allow_deleting_primary,
         )
+
+        # Clean up field metadata before deleting the field
+        from baserow.contrib.database.fields.metadata_handler import (
+            FieldMetadataHandler,
+        )
+
+        model = field.table.get_model(field_ids=[], add_dependencies=False)
+        if FieldMetadataHandler.is_metadata_enabled(model):
+            FieldMetadataHandler.delete_field_metadata(model, field.id)
 
         FieldDependencyHandler.break_dependencies_delete_dependants(field)
 

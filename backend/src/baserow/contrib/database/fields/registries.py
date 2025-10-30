@@ -199,9 +199,6 @@ class FieldType(
     """
     Set to False if the field values cannot be looked up through adhoc lookups
     via Link to table field.
-    This can happen when such values would not be normally available/prefetched
-    or would cause an infinite loop, e.g. Link to table field itself cannot be
-    a part of adhoc lookup.
     """
 
     _db_column_fields = None

@@ -383,3 +383,145 @@ def test_rows_history_updated(
         mock_broadcast_many_channel_group.mock_calls == row_history_many_broadcast_calls
     )
     assert mock_broadcast_channel_group.mock_calls == table_and_row_broadcast_calls
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("baserow.ws.registries.broadcast_to_channel_group")
+def test_rows_metadata_updated_signal_broadcasts_to_websocket(
+    mock_broadcast_to_channel_group, data_fixture
+):
+    """
+    Test that rows_metadata_updated signal broadcasts correct websocket message.
+    """
+    from baserow.contrib.database.rows.signals import rows_metadata_updated
+
+    user = data_fixture.create_user()
+    table = data_fixture.create_database_table(user=user)
+    field = data_fixture.create_text_field(table=table)
+    row = table.get_model().objects.create(**{f"field_{field.id}": "Test"})
+
+    with register_instance_temporarily(
+        row_metadata_registry, test_populates_with_row_id_metadata()
+    ):
+        rows_metadata_updated.send(
+            sender=None,
+            table=table,
+            row_ids=[row.id],
+            user=user,
+        )
+
+    mock_broadcast_to_channel_group.delay.assert_called_once()
+    args = mock_broadcast_to_channel_group.delay.call_args
+    assert args[0][0] == f"table-{table.id}"
+    assert args[0][1]["type"] == "rows_metadata_updated"
+    assert args[0][1]["table_id"] == table.id
+    assert args[0][1]["row_ids"] == [row.id]
+    assert args[0][1]["metadata"] == {row.id: {"row_id": row.id}}
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("baserow.ws.registries.broadcast_to_channel_group")
+def test_rows_metadata_updated_includes_all_metadata_types(
+    mock_broadcast_to_channel_group, data_fixture
+):
+    """
+    Test that rows_metadata_updated includes multiple metadata types when registered.
+    """
+    from baserow.contrib.database.rows.signals import rows_metadata_updated
+
+    class RowStatusMetadata(RowMetadataType):
+        type = "row_status"
+
+        def generate_metadata_for_rows(
+            self, user, table, row_ids: List[int]
+        ) -> Dict[int, Any]:
+            return {row_id: {"status": "active"} for row_id in row_ids}
+
+        def get_example_serializer_field(self) -> Field:
+            return serializers.CharField()
+
+    user = data_fixture.create_user()
+    table = data_fixture.create_database_table(user=user)
+    field = data_fixture.create_text_field(table=table)
+    row = table.get_model().objects.create(**{f"field_{field.id}": "Test"})
+
+    with register_instance_temporarily(
+        row_metadata_registry, test_populates_with_row_id_metadata()
+    ), register_instance_temporarily(row_metadata_registry, RowStatusMetadata()):
+        rows_metadata_updated.send(
+            sender=None,
+            table=table,
+            row_ids=[row.id],
+            user=user,
+        )
+
+    mock_broadcast_to_channel_group.delay.assert_called_once()
+    args = mock_broadcast_to_channel_group.delay.call_args
+    assert args[0][1]["type"] == "rows_metadata_updated"
+    assert args[0][1]["metadata"] == {
+        row.id: {"row_id": row.id, "row_status": {"status": "active"}}
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("baserow.ws.registries.broadcast_to_channel_group")
+def test_rows_metadata_updated_uses_transaction_on_commit(
+    mock_broadcast_to_channel_group, data_fixture
+):
+    """
+    Test that rows_metadata_updated signal uses transaction.on_commit() to defer broadcast.
+    """
+    from baserow.contrib.database.rows.signals import rows_metadata_updated
+
+    user = data_fixture.create_user()
+    table = data_fixture.create_database_table(user=user)
+    field = data_fixture.create_text_field(table=table)
+    row = table.get_model().objects.create(**{f"field_{field.id}": "Test"})
+
+    with register_instance_temporarily(
+        row_metadata_registry, test_populates_with_row_id_metadata()
+    ):
+        with transaction.atomic():
+            rows_metadata_updated.send(
+                sender=None,
+                table=table,
+                row_ids=[row.id],
+                user=user,
+            )
+            # Should not broadcast yet - still inside transaction
+            mock_broadcast_to_channel_group.delay.assert_not_called()
+
+        # Now should broadcast after transaction commits
+        mock_broadcast_to_channel_group.delay.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("baserow.ws.registries.broadcast_to_channel_group")
+def test_rows_metadata_updated_respects_user_web_socket_id(
+    mock_broadcast_to_channel_group, data_fixture
+):
+    """
+    Test that rows_metadata_updated signal passes user's web_socket_id to exclude sender.
+    """
+    from baserow.contrib.database.rows.signals import rows_metadata_updated
+
+    user = data_fixture.create_user()
+    user.web_socket_id = "test-socket-123"
+    table = data_fixture.create_database_table(user=user)
+    field = data_fixture.create_text_field(table=table)
+    row = table.get_model().objects.create(**{f"field_{field.id}": "Test"})
+
+    with register_instance_temporarily(
+        row_metadata_registry, test_populates_with_row_id_metadata()
+    ):
+        rows_metadata_updated.send(
+            sender=None,
+            table=table,
+            row_ids=[row.id],
+            user=user,
+        )
+
+    mock_broadcast_to_channel_group.delay.assert_called_once()
+    args = mock_broadcast_to_channel_group.delay.call_args
+    # The third argument should be the web_socket_id to exclude
+    assert args[0][2] == "test-socket-123"
