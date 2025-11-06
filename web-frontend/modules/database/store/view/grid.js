@@ -536,13 +536,37 @@ export const mutations = {
       }
     }
   },
+  UPDATE_ROW_METADATA(state, { row, metadata }) {
+    const index = state.rows.findIndex((item) => item.id === row.id)
+    if (index !== -1) {
+      const existingRowState = state.rows[index]
+
+      // Deep merge new metadata with existing metadata
+      const mergedMetadata = { ...existingRowState._.metadata }
+
+      // Deep merge each metadata type (e.g., ai_field)
+      Object.keys(metadata).forEach((metadataType) => {
+        if (!mergedMetadata[metadataType]) {
+          mergedMetadata[metadataType] = {}
+        }
+        // Deep merge field-level metadata
+        mergedMetadata[metadataType] = {
+          ...mergedMetadata[metadataType],
+          ...metadata[metadataType],
+        }
+      })
+
+      // Use Vue.set to ensure reactivity
+      Vue.set(existingRowState._, 'metadata', mergedMetadata)
+    }
+  },
   UPDATE_ROW_VALUES(state, { row, values }) {
     Object.assign(row, values)
   },
   UPDATE_ROW_FIELD_VALUE(state, { row, field, value }) {
     row[`field_${field.id}`] = value
   },
-  UPDATE_ROW_METADATA(state, { row, rowMetadataType, updateFunction }) {
+  UPDATE_ROW_METADATA_TYPE(state, { row, rowMetadataType, updateFunction }) {
     updateRowMetadataType(row, rowMetadataType, updateFunction)
   },
   FINALIZE_ROWS_IN_BUFFER(state, { oldRows, newRows, fields }) {
@@ -929,6 +953,22 @@ export const actions = {
             const metadata = extractRowMetadata(data, row.id)
             populateRow(row, metadata, false)
           })
+
+          // Store metadata in the rowMetadata store for persistence across refreshes
+          if (data.row_metadata && Object.keys(data.row_metadata).length > 0) {
+            const table = rootGetters['table/getSelected']
+            if (table) {
+              dispatch(
+                'rowMetadata/handleRowsUpdate',
+                {
+                  tableId: table.id,
+                  metadata: data.row_metadata,
+                },
+                { root: true }
+              )
+            }
+          }
+
           commit('ADD_ROWS', {
             rows: data.results,
             prependToRows: prependToBuffer,
@@ -1097,10 +1137,27 @@ export const actions = {
     if (gridId !== getters.getLastGridId) {
       return
     }
+
     data.results.forEach((row) => {
       const metadata = extractRowMetadata(data, row.id)
       populateRow(row, metadata, false)
     })
+
+    // Store metadata in the rowMetadata store for persistence across refreshes
+    if (data.row_metadata && Object.keys(data.row_metadata).length > 0) {
+      const table = rootGetters['table/getSelected']
+      if (table) {
+        dispatch(
+          'rowMetadata/handleRowsUpdate',
+          {
+            tableId: table.id,
+            metadata: data.row_metadata,
+          },
+          { root: true }
+        )
+      }
+    }
+
     commit('CLEAR_ROWS')
     commit('ADD_ROWS', {
       rows: data.results,
@@ -1195,6 +1252,22 @@ export const actions = {
           const metadata = extractRowMetadata(data, row.id)
           populateRow(row, metadata, false)
         })
+
+        // Store metadata in the rowMetadata store for persistence across refreshes
+        if (data.row_metadata && Object.keys(data.row_metadata).length > 0) {
+          const table = rootGetters['table/getSelected']
+          if (table) {
+            dispatch(
+              'rowMetadata/handleRowsUpdate',
+              {
+                tableId: table.id,
+                metadata: data.row_metadata,
+              },
+              { root: true }
+            )
+          }
+        }
+
         commit('ADD_ROWS', {
           rows: data.results,
           prependToRows: -getters.getBufferLimit,
@@ -2928,6 +3001,29 @@ export const actions = {
     populateRow(oldRow, metadata)
     populateRow(newRow, metadata)
 
+    // Clear pending field operations for AI fields that have been updated
+    // Check if metadata indicates successful generation (status changed from 'generating' to 'success')
+    if (metadata && oldRow._.metadata && newRow._.metadata) {
+      const oldAIMetadata = oldRow._.metadata.ai_field || {}
+      const newAIMetadata = newRow._.metadata.ai_field || {}
+
+      Object.keys(newAIMetadata).forEach((fieldId) => {
+        const oldStatus = oldAIMetadata[fieldId]?.status
+        const newStatus = newAIMetadata[fieldId]?.status
+
+        if (
+          oldStatus === 'generating' &&
+          (newStatus === 'success' || newStatus === 'error')
+        ) {
+          commit('SET_PENDING_FIELD_OPERATIONS', {
+            fieldId: parseInt(fieldId),
+            rowIds: [row.id],
+            value: false,
+          })
+        }
+      })
+    }
+
     await dispatch('updateMatchFilters', { view, row: oldRow, fields })
     await dispatch('updateSearchMatchesForRow', { row: oldRow, fields })
 
@@ -3091,6 +3187,21 @@ export const actions = {
       }
       await dispatch('correctMultiSelect')
     }
+  },
+  /**
+   * Updates row metadata for specific rows without changing row values.
+   * This is called when a rows_metadata_updated websocket event is received.
+   */
+  updateRowMetadata({ commit, getters }, { rowIds, metadata }) {
+    const allRows = getters.getAllRows
+    rowIds.forEach((rowId) => {
+      const rowIndex = allRows.findIndex((r) => r.id === rowId)
+      if (rowIndex > -1) {
+        const row = allRows[rowIndex]
+        const rowMetadata = metadata[rowId] || {}
+        commit('UPDATE_ROW_METADATA', { row, metadata: rowMetadata })
+      }
+    })
   },
   /**
    * Called when the user wants to delete an existing row in the table.
@@ -3400,13 +3511,17 @@ export const actions = {
       })
     }
   },
-  updateRowMetadata(
-    { commit, getters, dispatch },
-    { tableId, rowId, rowMetadataType, updateFunction }
+  updateRowMetadataType(
+    { commit, getters },
+    { rowId, rowMetadataType, updateFunction }
   ) {
     const row = getters.getRow(rowId)
     if (row) {
-      commit('UPDATE_ROW_METADATA', { row, rowMetadataType, updateFunction })
+      commit('UPDATE_ROW_METADATA_TYPE', {
+        row,
+        rowMetadataType,
+        updateFunction,
+      })
     }
   },
   /**

@@ -54,32 +54,29 @@ class AIFieldMetadataType(RowMetadataType):
         :param row_ids: List of row IDs to generate metadata for
         :return: Dictionary mapping row_id -> {field_id -> metadata}
         """
-        # Get all AI fields for this table
+
         ai_fields = AIField.objects.filter(table=table)
 
         if not ai_fields.exists():
             return {}
 
-        # Get the table model
         model = table.get_model()
 
-        # Check if metadata column exists
         if not FieldMetadataHandler.is_metadata_enabled(model):
             return {}
 
-        # Fetch all rows
-        rows = model.objects.filter(id__in=row_ids)
+        rows = model.objects.filter(id__in=row_ids).only(
+            "id", FieldMetadataHandler.METADATA_COLUMN
+        )
 
         result = {}
         for row in rows:
             row_metadata = {}
 
             for ai_field in ai_fields:
-                # Get metadata for this field
                 field_metadata = FieldMetadataHandler.get_metadata(row, ai_field.id)
 
                 if field_metadata:
-                    # Transform short keys to readable format for API
                     readable_metadata = self._transform_metadata_for_api(field_metadata)
                     row_metadata[str(ai_field.id)] = readable_metadata
 
@@ -98,23 +95,24 @@ class AIFieldMetadataType(RowMetadataType):
         :param metadata: Internal metadata with short keys
         :return: Readable metadata for API
         """
+
         result = {}
 
-        # Status
         if AIMetadataKeys.STATUS in metadata:
             status_value = metadata[AIMetadataKeys.STATUS]
             status_enum = AIGenerationStatus(status_value)
-            # Convert enum to lowercase string (e.g., "GENERATING" -> "generating")
             result["status"] = status_enum.name.lower()
 
-        # Timestamps
         if AIMetadataKeys.GENERATION_STARTED_AT in metadata:
-            result["generation_started_at"] = metadata[AIMetadataKeys.GENERATION_STARTED_AT]
+            result["generation_started_at"] = metadata[
+                AIMetadataKeys.GENERATION_STARTED_AT
+            ]
 
         if AIMetadataKeys.GENERATION_FINISHED_AT in metadata:
-            result["generation_finished_at"] = metadata[AIMetadataKeys.GENERATION_FINISHED_AT]
+            result["generation_finished_at"] = metadata[
+                AIMetadataKeys.GENERATION_FINISHED_AT
+            ]
 
-        # Error details
         if AIMetadataKeys.ERROR in metadata:
             error_data = metadata[AIMetadataKeys.ERROR]
             result["error"] = {
@@ -130,6 +128,7 @@ class AIFieldMetadataType(RowMetadataType):
 
         The field represents a dictionary mapping field_id -> metadata.
         """
+
         return serializers.DictField(
             child=serializers.DictField(
                 child=serializers.JSONField(),

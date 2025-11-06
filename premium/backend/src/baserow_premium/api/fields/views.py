@@ -96,7 +96,6 @@ class AsyncGenerateAIFieldValuesView(APIView):
             ),
         },
     )
-    @transaction.atomic
     @map_exceptions(
         {
             FieldDoesNotExist: ERROR_FIELD_DOES_NOT_EXIST,
@@ -109,6 +108,8 @@ class AsyncGenerateAIFieldValuesView(APIView):
     )
     @validate_body(GenerateAIFieldValueViewSerializer, return_validated=True)
     def post(self, request: Request, field_id: int, data) -> Response:
+        from baserow_premium.fields.handler import AIFieldHandler
+
         ai_field = FieldHandler().get_field(
             field_id,
             base_queryset=AIField.objects.all().select_related(

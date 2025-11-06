@@ -146,6 +146,7 @@ def rows_metadata_updated(sender, table, row_ids, user, **kwargs):
     This is used for real-time updates when row metadata changes without
     the row values themselves changing (e.g., AI generation status updates).
     """
+
     table_page_type = page_registry.get("table")
     transaction.on_commit(
         lambda: table_page_type.broadcast(

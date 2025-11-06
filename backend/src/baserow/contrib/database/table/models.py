@@ -1202,12 +1202,13 @@ class Table(
         where field IDs are keys. This allows any field type to store status,
         error information, timestamps, or other metadata about their values.
         """
+
         field_attrs[FIELD_METADATA_COLUMN_NAME] = JSONField(
             null=False,
             blank=True,
             default=dict,
             db_default={},
-            help_text="Stores metadata for all fields in this row (e.g., AI generation status, validation states)",
+            help_text="Stores metadata for all fields in this row.",
         )
         return field_attrs
 

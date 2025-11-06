@@ -970,16 +970,6 @@ class FieldHandler(metaclass=baserow_trace_methods(tracer)):
 
         if duplicate_data and field_type.keep_data_on_duplication:
             FieldDataBackupHandler.duplicate_field_data(field, new_field)
-
-            # Remap field metadata from old field ID to new field ID
-            from baserow.contrib.database.fields.metadata_handler import (
-                FieldMetadataHandler,
-            )
-
-            FieldMetadataHandler.remap_field_id(
-                old_field=field, new_field=new_field
-            )
-
         progress.increment()
 
         return new_field, updated_fields

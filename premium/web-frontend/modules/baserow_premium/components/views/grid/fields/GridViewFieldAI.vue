@@ -1,10 +1,6 @@
 <template>
-  <div>
-    <div
-      v-if="(!value || (!opened && generating)) && !readOnly"
-      ref="cell"
-      class="grid-view__cell active"
-    >
+  <div class="grid-field-ai-wrapper">
+    <div v-if="!value && !readOnly" ref="cell" class="grid-view__cell active">
       <div class="grid-field-button">
         <Button
           type="secondary"
@@ -27,7 +23,13 @@
       v-on="$listeners"
     >
       <template v-if="!readOnly && editing" #default="{ editing }">
-        <div style="background-color: #fff; padding: 8px">
+        <div style="background-color: #fff; padding: 8px; position: relative">
+          <i
+            v-if="metadataStatusIndicator"
+            :class="metadataStatusIndicator.icon"
+            class="grid-field-ai-wrapper__status-indicator"
+            :style="{ color: metadataStatusIndicator.color }"
+          ></i>
           <ButtonText
             v-if="!isDeactivated"
             icon="iconoir-magic-wand"

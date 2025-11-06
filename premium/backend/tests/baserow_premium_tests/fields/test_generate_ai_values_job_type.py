@@ -8,6 +8,7 @@ from django.test.utils import override_settings
 
 import pytest
 from baserow_premium.fields.models import GenerateAIValuesJob
+from baserow_premium.fields.tasks import generate_ai_values_for_rows
 
 from baserow.contrib.database.fields.exceptions import FieldDoesNotExist
 from baserow.contrib.database.fields.handler import FieldHandler
@@ -710,6 +711,177 @@ def test_generate_ai_field_value_view_generative_ai_with_files(
     assert "Generated with files" in getattr(updated_row, field.db_column)
     assert "Test prompt" in getattr(updated_row, field.db_column)
     assert patched_rows_updated.call_args[1]["updated_field_ids"] == set([field.id])
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.field_ai
+@patch("baserow.contrib.database.rows.signals.rows_metadata_updated.send")
+@patch("baserow.contrib.database.rows.signals.rows_updated.send")
+def test_generate_ai_field_value_sends_metadata_updated_signal_on_start(
+    patched_rows_updated, patched_rows_metadata_updated, premium_data_fixture
+):
+    premium_data_fixture.register_fake_generate_ai_type()
+    user = premium_data_fixture.create_user()
+
+    database = premium_data_fixture.create_database_application(user=user)
+    table = premium_data_fixture.create_database_table(database=database)
+
+    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+
+    field = premium_data_fixture.create_ai_field(
+        table=table, name="ai", ai_prompt="'Hello'"
+    )
+
+    rows = RowHandler().create_rows(user, table, rows_values=[{}]).created_rows
+    row = rows[0]
+
+    patched_rows_metadata_updated.reset_mock()
+    patched_rows_updated.reset_mock()
+
+    generate_ai_values_for_rows(user.id, field.id, [row.id])
+
+    assert patched_rows_metadata_updated.call_count == 1
+
+    call_kwargs = patched_rows_metadata_updated.call_args[1]
+    assert call_kwargs["table"] == table
+    assert call_kwargs["row_ids"] == [row.id]
+    assert call_kwargs["user"] == user
+
+    row.refresh_from_db()
+    metadata = FieldMetadataHandler.get_metadata(row, field.id)
+    assert metadata is not None
+    assert metadata["s"] == 2  # AIGenerationStatus.SUCCESS
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.field_ai
+@patch("baserow.contrib.database.rows.signals.rows_metadata_updated.send")
+@patch("baserow.contrib.database.rows.signals.rows_ai_values_generation_error.send")
+@patch("baserow.contrib.database.rows.signals.rows_updated.send")
+def test_generate_ai_field_value_sends_metadata_updated_signal_on_error(
+    patched_rows_updated,
+    patched_rows_ai_values_generation_error,
+    patched_rows_metadata_updated,
+    premium_data_fixture,
+):
+    premium_data_fixture.register_fake_generate_ai_type()
+    user = premium_data_fixture.create_user()
+
+    database = premium_data_fixture.create_database_application(user=user)
+    table = premium_data_fixture.create_database_table(database=database)
+
+    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+
+    field = premium_data_fixture.create_ai_field(
+        table=table,
+        name="ai",
+        ai_generative_ai_type="test_generative_ai_prompt_error",
+        ai_prompt="'Test'",
+    )
+
+    rows = RowHandler().create_rows(user, table, rows_values=[{}]).created_rows
+    row = rows[0]
+
+    patched_rows_metadata_updated.reset_mock()
+
+    with pytest.raises(GenerativeAIPromptError):
+        generate_ai_values_for_rows(user.id, field.id, [row.id])
+
+    assert patched_rows_metadata_updated.call_count == 2
+
+    first_call_kwargs = patched_rows_metadata_updated.call_args_list[0][1]
+    assert first_call_kwargs["table"] == table
+    assert first_call_kwargs["row_ids"] == [row.id]
+    assert first_call_kwargs["user"] == user
+
+    second_call_kwargs = patched_rows_metadata_updated.call_args_list[1][1]
+    assert second_call_kwargs["table"] == table
+    assert second_call_kwargs["row_ids"] == [row.id]
+    assert second_call_kwargs["user"] == user
+
+    row.refresh_from_db()
+    metadata = FieldMetadataHandler.get_metadata(row, field.id)
+    assert metadata is not None
+    assert metadata["s"] == 3  # AIGenerationStatus.ERROR
+    assert "e" in metadata
+    assert metadata["e"]["m"] == "Test error"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.field_ai
+@patch("baserow.contrib.database.rows.signals.rows_updated.send")
+def test_generate_ai_field_value_includes_metadata_in_rows_updated_signal(
+    patched_rows_updated, premium_data_fixture
+):
+    premium_data_fixture.register_fake_generate_ai_type()
+    user = premium_data_fixture.create_user()
+
+    database = premium_data_fixture.create_database_application(user=user)
+    table = premium_data_fixture.create_database_table(database=database)
+
+    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+
+    field = premium_data_fixture.create_ai_field(
+        table=table, name="ai", ai_prompt="'Hello'"
+    )
+
+    rows = RowHandler().create_rows(user, table, rows_values=[{}]).created_rows
+    row = rows[0]
+
+    patched_rows_updated.reset_mock()
+
+    generate_ai_values_for_rows(user.id, field.id, [row.id])
+
+    assert patched_rows_updated.call_count == 1
+
+    updated_row = patched_rows_updated.call_args[1]["rows"][0]
+    assert (
+        getattr(updated_row, field.db_column)
+        == "Generated with temperature None: Hello"
+    )
+
+    # Verify metadata in database shows success
+    # The signal handler will read this metadata from the database
+    row.refresh_from_db()
+    metadata = FieldMetadataHandler.get_metadata(row, field.id)
+    assert metadata is not None
+    assert metadata["s"] == 2  # AIGenerationStatus.SUCCESS
+    assert "gsa" in metadata  # generation_started_at
+    assert "gfa" in metadata  # generation_finished_at
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.field_ai
+@patch("baserow.contrib.database.rows.signals.rows_updated.send")
+def test_generate_ai_field_value_preserves_generation_started_timestamp(
+    patched_rows_updated, premium_data_fixture
+):
+    premium_data_fixture.register_fake_generate_ai_type()
+    user = premium_data_fixture.create_user()
+
+    database = premium_data_fixture.create_database_application(user=user)
+    table = premium_data_fixture.create_database_table(database=database)
+
+    # Ensure metadata column exists
+    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+
+    field = premium_data_fixture.create_ai_field(
+        table=table, name="ai", ai_prompt="'Hello'"
+    )
+
+    rows = RowHandler().create_rows(user, table, rows_values=[{}]).created_rows
+    row = rows[0]
+
+    generate_ai_values_for_rows(user.id, field.id, [row.id])
+
+    # Verify metadata has both started and finished timestamps
+    row.refresh_from_db()
+    metadata = FieldMetadataHandler.get_metadata(row, field.id)
+    assert metadata is not None
+    assert "gsa" in metadata  # generation_started_at
+    assert "gfa" in metadata  # generation_finished_at
+    # Started timestamp should be before or equal to finished timestamp
+    assert metadata["gsa"] <= metadata["gfa"]
 
 
 @pytest.mark.django_db(transaction=True)

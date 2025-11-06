@@ -1,21 +1,16 @@
-"""
-Tests for AI Field Row Metadata Type.
-"""
-
 import pytest
-
-from baserow.contrib.database.fields.metadata_handler import FieldMetadataHandler
-from baserow.contrib.database.rows.registries import row_metadata_registry
 from baserow_premium.fields.ai_field_metadata import (
     AIFieldMetadataHandler,
     AIGenerationStatus,
 )
 
+from baserow.contrib.database.fields.metadata_handler import FieldMetadataHandler
+from baserow.contrib.database.rows.registries import row_metadata_registry
+
 
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_registered(premium_data_fixture):
-    """Test that AIFieldMetadataType is properly registered."""
     metadata_type = row_metadata_registry.get("ai_field")
     assert metadata_type is not None
     assert metadata_type.type == "ai_field"
@@ -24,7 +19,6 @@ def test_ai_field_metadata_type_registered(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_no_ai_fields(premium_data_fixture):
-    """Test metadata type returns empty dict when table has no AI fields."""
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
     model = FieldMetadataHandler.ensure_metadata_column_exists(table)
@@ -39,7 +33,6 @@ def test_ai_field_metadata_type_no_ai_fields(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_no_metadata_column(premium_data_fixture):
-    """Test metadata type returns empty dict when table has no metadata column."""
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
@@ -55,7 +48,6 @@ def test_ai_field_metadata_type_no_metadata_column(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_single_field(premium_data_fixture):
-    """Test metadata type returns metadata for a single AI field."""
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
@@ -63,7 +55,6 @@ def test_ai_field_metadata_type_single_field(premium_data_fixture):
     model = FieldMetadataHandler.ensure_metadata_column_exists(table)
     row = model.objects.create()
 
-    # Set generating status
     AIFieldMetadataHandler.set_generating(model, row.id, ai_field.id)
 
     metadata_type = row_metadata_registry.get("ai_field")
@@ -81,7 +72,6 @@ def test_ai_field_metadata_type_single_field(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_multiple_fields(premium_data_fixture):
-    """Test metadata type returns metadata for multiple AI fields."""
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
     ai_field1 = premium_data_fixture.create_ai_field(table=table, name="AI 1")
@@ -90,8 +80,8 @@ def test_ai_field_metadata_type_multiple_fields(premium_data_fixture):
     model = FieldMetadataHandler.ensure_metadata_column_exists(table)
     row = model.objects.create()
 
-    # Set different statuses
     AIFieldMetadataHandler.set_generating(model, row.id, ai_field1.id)
+    AIFieldMetadataHandler.set_generating(model, row.id, ai_field2.id)
     AIFieldMetadataHandler.set_success(model, row.id, ai_field2.id)
 
     metadata_type = row_metadata_registry.get("ai_field")
@@ -101,12 +91,10 @@ def test_ai_field_metadata_type_multiple_fields(premium_data_fixture):
     assert str(ai_field1.id) in result[row.id]
     assert str(ai_field2.id) in result[row.id]
 
-    # Check field 1 metadata
     field1_metadata = result[row.id][str(ai_field1.id)]
     assert field1_metadata["status"] == "generating"
     assert "generation_started_at" in field1_metadata
 
-    # Check field 2 metadata
     field2_metadata = result[row.id][str(ai_field2.id)]
     assert field2_metadata["status"] == "success"
     assert "generation_started_at" in field2_metadata
@@ -116,7 +104,6 @@ def test_ai_field_metadata_type_multiple_fields(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_multiple_rows(premium_data_fixture):
-    """Test metadata type returns metadata for multiple rows."""
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
@@ -125,7 +112,6 @@ def test_ai_field_metadata_type_multiple_rows(premium_data_fixture):
     row1 = model.objects.create()
     row2 = model.objects.create()
 
-    # Set different statuses
     AIFieldMetadataHandler.set_generating(model, row1.id, ai_field.id)
     AIFieldMetadataHandler.set_error(
         model, row2.id, ai_field.id, "Test error", "ValueError"
@@ -137,10 +123,8 @@ def test_ai_field_metadata_type_multiple_rows(premium_data_fixture):
     assert row1.id in result
     assert row2.id in result
 
-    # Check row 1
     assert result[row1.id][str(ai_field.id)]["status"] == "generating"
 
-    # Check row 2
     row2_metadata = result[row2.id][str(ai_field.id)]
     assert row2_metadata["status"] == "error"
     assert "error" in row2_metadata
@@ -151,7 +135,6 @@ def test_ai_field_metadata_type_multiple_rows(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_status_transformation(premium_data_fixture):
-    """Test that status enum values are transformed to lowercase strings."""
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
@@ -160,7 +143,6 @@ def test_ai_field_metadata_type_status_transformation(premium_data_fixture):
 
     metadata_type = row_metadata_registry.get("ai_field")
 
-    # Test all status values
     statuses = [
         (AIGenerationStatus.PENDING, "pending"),
         (AIGenerationStatus.GENERATING, "generating"),
@@ -171,7 +153,6 @@ def test_ai_field_metadata_type_status_transformation(premium_data_fixture):
     for status_enum, expected_string in statuses:
         row = model.objects.create()
 
-        # Manually set status
         FieldMetadataHandler.set_metadata(
             model, row.id, ai_field.id, {"s": status_enum}
         )
@@ -184,7 +165,6 @@ def test_ai_field_metadata_type_status_transformation(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_no_metadata_for_field(premium_data_fixture):
-    """Test that rows without metadata for a field are excluded."""
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
@@ -193,7 +173,6 @@ def test_ai_field_metadata_type_no_metadata_for_field(premium_data_fixture):
     row_with_metadata = model.objects.create()
     row_without_metadata = model.objects.create()
 
-    # Only set metadata for one row
     AIFieldMetadataHandler.set_generating(model, row_with_metadata.id, ai_field.id)
 
     metadata_type = row_metadata_registry.get("ai_field")
@@ -201,7 +180,6 @@ def test_ai_field_metadata_type_no_metadata_for_field(premium_data_fixture):
         user, table, [row_with_metadata.id, row_without_metadata.id]
     )
 
-    # Only row with metadata should be in result
     assert row_with_metadata.id in result
     assert row_without_metadata.id not in result
 
@@ -209,7 +187,6 @@ def test_ai_field_metadata_type_no_metadata_for_field(premium_data_fixture):
 @pytest.mark.django_db
 @pytest.mark.field_ai
 def test_ai_field_metadata_type_serializer_field(premium_data_fixture):
-    """Test the example serializer field for API documentation."""
     metadata_type = row_metadata_registry.get("ai_field")
     serializer_field = metadata_type.get_example_serializer_field()
 

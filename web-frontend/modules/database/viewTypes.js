@@ -289,6 +289,12 @@ export class ViewType extends Registerable {
   ) {}
 
   /**
+   * Event that is called when row metadata is updated from an outside source,
+   * via a real time event. This is used to update metadata without changing row values.
+   */
+  metadataUpdated(context, tableId, rowIds, metadata, storePrefix) {}
+
+  /**
    * Event that is called when something went wrong while generating AI values
    * for a field. This can be used to show an error message to the user.
    */
@@ -802,6 +808,15 @@ export class GridViewType extends ViewType {
       })
       store.dispatch(storePrefix + 'view/grid/fetchAllFieldAggregationData', {
         view: store.getters['view/getSelected'],
+      })
+    }
+  }
+
+  metadataUpdated({ store }, tableId, rowIds, metadata, storePrefix = '') {
+    if (this.isCurrentView(store, tableId)) {
+      store.dispatch(storePrefix + 'view/grid/updateRowMetadata', {
+        rowIds,
+        metadata,
       })
     }
   }

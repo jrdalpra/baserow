@@ -15,6 +15,7 @@ from baserow.contrib.database.rows.registries import (
     RowMetadataType,
     row_metadata_registry,
 )
+from baserow.contrib.database.rows.signals import rows_metadata_updated
 from baserow.test_utils.helpers import AnyInt, register_instance_temporarily
 
 
@@ -390,11 +391,6 @@ def test_rows_history_updated(
 def test_rows_metadata_updated_signal_broadcasts_to_websocket(
     mock_broadcast_to_channel_group, data_fixture
 ):
-    """
-    Test that rows_metadata_updated signal broadcasts correct websocket message.
-    """
-    from baserow.contrib.database.rows.signals import rows_metadata_updated
-
     user = data_fixture.create_user()
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
@@ -424,11 +420,6 @@ def test_rows_metadata_updated_signal_broadcasts_to_websocket(
 def test_rows_metadata_updated_includes_all_metadata_types(
     mock_broadcast_to_channel_group, data_fixture
 ):
-    """
-    Test that rows_metadata_updated includes multiple metadata types when registered.
-    """
-    from baserow.contrib.database.rows.signals import rows_metadata_updated
-
     class RowStatusMetadata(RowMetadataType):
         type = "row_status"
 
@@ -468,11 +459,6 @@ def test_rows_metadata_updated_includes_all_metadata_types(
 def test_rows_metadata_updated_uses_transaction_on_commit(
     mock_broadcast_to_channel_group, data_fixture
 ):
-    """
-    Test that rows_metadata_updated signal uses transaction.on_commit() to defer broadcast.
-    """
-    from baserow.contrib.database.rows.signals import rows_metadata_updated
-
     user = data_fixture.create_user()
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
@@ -488,10 +474,8 @@ def test_rows_metadata_updated_uses_transaction_on_commit(
                 row_ids=[row.id],
                 user=user,
             )
-            # Should not broadcast yet - still inside transaction
             mock_broadcast_to_channel_group.delay.assert_not_called()
 
-        # Now should broadcast after transaction commits
         mock_broadcast_to_channel_group.delay.assert_called_once()
 
 
@@ -500,11 +484,6 @@ def test_rows_metadata_updated_uses_transaction_on_commit(
 def test_rows_metadata_updated_respects_user_web_socket_id(
     mock_broadcast_to_channel_group, data_fixture
 ):
-    """
-    Test that rows_metadata_updated signal passes user's web_socket_id to exclude sender.
-    """
-    from baserow.contrib.database.rows.signals import rows_metadata_updated
-
     user = data_fixture.create_user()
     user.web_socket_id = "test-socket-123"
     table = data_fixture.create_database_table(user=user)
@@ -523,5 +502,4 @@ def test_rows_metadata_updated_respects_user_web_socket_id(
 
     mock_broadcast_to_channel_group.delay.assert_called_once()
     args = mock_broadcast_to_channel_group.delay.call_args
-    # The third argument should be the web_socket_id to exclude
     assert args[0][2] == "test-socket-123"

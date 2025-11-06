@@ -172,6 +172,14 @@ export const registerRealtimeEvents = (realtime) => {
 
   realtime.registerEvent('rows_created', (context, data) => {
     const { app, store } = context
+
+    if (data.metadata && Object.keys(data.metadata).length > 0) {
+      store.dispatch('rowMetadata/handleRowsUpdate', {
+        tableId: data.table_id,
+        metadata: data.metadata,
+      })
+    }
+
     for (const viewType of Object.values(app.$registry.getAll('view'))) {
       for (let i = 0; i < data.rows.length; i++) {
         const row = data.rows[i]
@@ -190,6 +198,14 @@ export const registerRealtimeEvents = (realtime) => {
 
   realtime.registerEvent('rows_updated', async (context, data) => {
     const { app, store } = context
+
+    if (data.metadata && Object.keys(data.metadata).length > 0) {
+      store.dispatch('rowMetadata/handleRowsUpdate', {
+        tableId: data.table_id,
+        metadata: data.metadata,
+      })
+    }
+
     for (const viewType of Object.values(app.$registry.getAll('view'))) {
       for (let i = 0; i < data.rows.length; i++) {
         const row = data.rows[i]
@@ -239,6 +255,14 @@ export const registerRealtimeEvents = (realtime) => {
 
   realtime.registerEvent('rows_deleted', (context, data) => {
     const { app, store } = context
+
+    // Clear metadata for deleted rows
+    const rowIds = data.rows.map((row) => row.id)
+    store.dispatch('rowMetadata/handleRowsDeleted', {
+      tableId: data.table_id,
+      rowIds,
+    })
+
     for (const viewType of Object.values(app.$registry.getAll('view'))) {
       for (let i = 0; i < data.rows.length; i++) {
         const row = data.rows[i]
@@ -250,6 +274,28 @@ export const registerRealtimeEvents = (realtime) => {
           'page/'
         )
       }
+    }
+  })
+
+  realtime.registerEvent('rows_metadata_updated', (context, data) => {
+    const { store, app } = context
+
+    // Update metadata store with the new metadata
+    store.dispatch('rowMetadata/handleWebsocketUpdate', {
+      tableId: data.table_id,
+      rowIds: data.row_ids,
+      metadata: data.metadata,
+    })
+
+    // Update row objects in views with the new metadata
+    for (const viewType of Object.values(app.$registry.getAll('view'))) {
+      viewType.metadataUpdated(
+        context,
+        data.table_id,
+        data.row_ids,
+        data.metadata,
+        'page/'
+      )
     }
   })
 

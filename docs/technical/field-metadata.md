@@ -12,15 +12,14 @@ The field metadata system provides a way to store and manage per-field, per-row 
 
 #### Database Schema
 
-Metadata is stored in a JSONB column named `field_metadata` on each table:
+Metadata is stored in a JSONB column named `field_metadata` on each table, added dynamically when first needed:
 
 ```sql
 ALTER TABLE database_table_123
 ADD COLUMN field_metadata JSONB NOT NULL DEFAULT '{}';
-
-CREATE INDEX database_table_123_field_metadata_gin
-ON database_table_123 USING GIN (field_metadata);
 ```
+
+The column is added via Django's schema editor when `FieldMetadataHandler.ensure_metadata_column_exists()` is called. Indexes are not automatically created but can be added if query performance requires them.
 
 **Structure**:
 ```json
@@ -44,9 +43,10 @@ ON database_table_123 USING GIN (field_metadata);
 
 **Key design decisions**:
 - Field IDs are stored as strings (JSON requirement)
-- Short keys used for space efficiency
-- JSONB allows efficient querying with GIN indexes
-- Default empty object avoids NULL handling
+- Short keys used for space efficiency (e.g., `"s"` for status, `"gsa"` for generation_started_at)
+- JSONB allows efficient querying and atomic updates
+- Default empty object `{}` avoids NULL handling
+- Status values stored as integers (enum values) for compactness
 
 #### Column Management
 
@@ -74,12 +74,17 @@ model = FieldMetadataHandler.ensure_metadata_column_exists(table)
 Generic handler providing CRUD operations for field metadata:
 
 - `get_metadata(row, field_id)` - Read metadata for a specific field
-- `set_metadata(model, row_id, field_id, metadata, merge=True)` - Write metadata atomically
+- `set_metadata(model, row_id, field_id, metadata, merge=True)` - Write metadata atomically using `jsonb_set`
 - `bulk_set_metadata(model, updates)` - Update multiple rows efficiently
-- `delete_field_metadata(model, field_id)` - Remove metadata when field is deleted
+- `delete_field_metadata(model, field_id)` - Remove metadata when field is deleted (uses custom `JSONBRemoveKey` Func)
+- `clear_row_metadata(model, row_id)` - Clear all metadata for a specific row
 - `get_rows_by_metadata_status(model, field_id, status)` - Query rows by metadata value
+- `get_rows_with_field_metadata(model, field_id)` - Get all rows that have metadata for a specific field
 
-**Key feature**: Uses PostgreSQL's `jsonb_set` function for atomic updates, avoiding race conditions.
+**Key features**:
+- Uses PostgreSQL's `jsonb_set` with `COALESCE` for atomic updates, avoiding race conditions
+- Custom Django ORM `Func` class (`JSONBRemoveKey`) for JSONB `-` operator to remove keys atomically
+- All methods gracefully degrade when metadata column doesn't exist
 
 See the file for complete implementation details and method signatures.
 
@@ -92,11 +97,17 @@ Field types can implement handlers with domain-specific logic.
 **Location**: `premium/backend/src/baserow_premium/fields/ai_field_metadata.py`
 
 Provides AI-specific methods:
-- `set_generating(model, row_id, field_id)` - Mark as generating
-- `set_success(model, row_id, field_id)` - Mark as successful
-- `set_error(model, row_id, field_id, error_message, error_type)` - Mark as failed
+- `set_generating(model, row_id, field_id)` - Mark as generating with start timestamp
+- `set_success(model, row_id, field_id)` - Mark as successful with completion timestamp (preserves start time)
+- `set_error(model, row_id, field_id, error_message, error_type)` - Mark as failed with error details
+- `set_generating_for_rows(ai_field, row_ids)` - Batch set generating status for multiple rows
+- `broadcast_generation_started(ai_field, row_ids, user)` - Broadcast metadata updates via WebSocket
 
-See the file for implementation details including status enums, metadata keys, and timestamp preservation.
+**Status enum** (`AIGenerationStatus`): `PENDING=0`, `GENERATING=1`, `SUCCESS=2`, `ERROR=3`
+
+**Metadata keys** (`AIMetadataKeys`): Short storage names (`"s"`, `"gsa"`, `"gfa"`, `"e"`, `"m"`, `"t"`)
+
+See the file for complete implementation including timestamp preservation logic.
 
 ### API Integration
 
@@ -178,9 +189,22 @@ The signal handler:
 3. Broadcasts `rows_metadata_updated` websocket message with metadata
 4. Uses `transaction.on_commit()` to ensure consistency
 
-**Usage example**: `premium/backend/src/baserow_premium/fields/tasks.py`
+**Broadcasting helper**: `AIFieldMetadataHandler.broadcast_generation_started()`
 
-Send the signal when metadata changes:
+This method handles both setting metadata and broadcasting in one call:
+```python
+# Set metadata in database
+AIFieldMetadataHandler.set_generating_for_rows(ai_field, row_ids)
+
+# Broadcast to all connected clients
+AIFieldMetadataHandler.broadcast_generation_started(
+    ai_field=ai_field,
+    row_ids=row_ids,
+    user=user,
+)
+```
+
+**Manual signal usage** (for custom metadata types):
 ```python
 from baserow.contrib.database.rows.signals import rows_metadata_updated
 
@@ -205,8 +229,13 @@ rows_metadata_updated.send(
 
 2. **Task starts, metadata updated to "generating"**
    ```python
-   AIFieldMetadataHandler.set_generating(model, row.id, field.id)
-   rows_metadata_updated.send(...)
+   # Set metadata in database
+   AIFieldMetadataHandler.set_generating_for_rows(ai_field, row_ids)
+
+   # Broadcast via WebSocket
+   AIFieldMetadataHandler.broadcast_generation_started(
+       ai_field, row_ids, user
+   )
    ```
 
    **Websocket broadcast**:
@@ -426,6 +455,25 @@ metadata = {
 FieldMetadataHandler.set_metadata(model, row_id, field_id, metadata, merge=False)
 ```
 
+### 5. Cleanup on Field Operations
+
+Metadata is automatically cleaned up when fields are deleted or modified:
+
+**On field deletion** (`FieldHandler.delete_field()`):
+```python
+# In handler.py
+FieldMetadataHandler.delete_field_metadata(model, field.id)
+```
+
+**On field type change** (`FieldHandler.update_field()`):
+```python
+# When field type changes, clear stale metadata
+if baserow_field_type_changed:
+    FieldMetadataHandler.delete_field_metadata(model, field.id)
+```
+
+This ensures no orphaned metadata remains when fields are removed or fundamentally changed.
+
 ## Performance Considerations
 
 ### Database Queries
@@ -466,9 +514,11 @@ The field metadata system is currently in its initial implementation phase. The 
    - Restoring a snapshot will not restore metadata states
    - Metadata is treated as ephemeral, not part of the data model
 
-4. **Field Duplication**: When duplicating fields, metadata is not copied
+4. **Field Duplication**: When duplicating fields, metadata is NOT copied
+   - Metadata is field-specific and tied to field IDs
+   - Duplicated fields get new IDs, so old metadata doesn't apply
    - New field instances start with empty metadata
-   - Historical metadata from original field is not transferred
+   - This is by design - metadata tracks current state, not historical field configurations
 
 5. **Row History**: Metadata changes are not tracked in row history
    - Viewing historical row versions will not show metadata at that time

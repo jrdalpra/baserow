@@ -79,14 +79,12 @@ def reverse_migration(apps, schema_editor):
         for table in Table.objects.all():
             table_name = f"database_table_{table.id}"
 
-            # Drop the index first
             cursor.execute(
                 f"""
                 DROP INDEX IF EXISTS {table_name}_field_metadata_gin
                 """
             )
 
-            # Drop the column
             cursor.execute(
                 f"""
                 ALTER TABLE {table_name}
@@ -94,7 +92,6 @@ def reverse_migration(apps, schema_editor):
                 """
             )
 
-    # Update the flag
     Table.objects.all().update(field_metadata_column_added=False)
 
 
