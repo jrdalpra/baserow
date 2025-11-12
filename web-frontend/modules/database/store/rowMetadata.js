@@ -1,3 +1,5 @@
+import { GRID_VIEW_BUFFER_REQUEST_SIZE } from '@baserow/modules/database/constants'
+
 /**
  * Row Metadata Store
  *
@@ -22,13 +24,55 @@
  * }
  */
 
+const MAX_ROWS_PER_TABLE = GRID_VIEW_BUFFER_REQUEST_SIZE * 5
+
 export const state = () => ({
   // Metadata indexed by tableId -> rowId -> metadata type -> fieldId -> metadata
   metadata: {},
   loadedTables: new Set(),
+  // Track access order for LRU cache: tableId -> [rowId1, rowId2, ...]
+  // Most recently accessed rows are at the end
+  accessOrder: {},
 })
 
 export const mutations = {
+  /**
+   * Update access order for LRU cache and prune old entries if needed
+   * @param {Object} state - Vuex state
+   * @param {number} tableId - Table ID
+   * @param {Array<number>} rowIds - Row IDs being accessed
+   */
+  _updateAccessOrder(state, { tableId, rowIds }) {
+    if (!state.accessOrder[tableId]) {
+      state.accessOrder[tableId] = []
+    }
+
+    const order = state.accessOrder[tableId]
+    const rowIdStrings = rowIds.map(String)
+
+    // Remove these row IDs from their current positions
+    state.accessOrder[tableId] = order.filter(
+      (id) => !rowIdStrings.includes(id)
+    )
+
+    // Add them to the end (most recently used)
+    state.accessOrder[tableId].push(...rowIdStrings)
+
+    // If we exceed the limit, remove oldest entries
+    if (state.accessOrder[tableId].length > MAX_ROWS_PER_TABLE) {
+      const toRemoveCount =
+        state.accessOrder[tableId].length - MAX_ROWS_PER_TABLE
+      const rowsToRemove = state.accessOrder[tableId].splice(0, toRemoveCount)
+
+      // Remove metadata for evicted rows
+      if (state.metadata[tableId]) {
+        rowsToRemove.forEach((rowId) => {
+          delete state.metadata[tableId][rowId]
+        })
+      }
+    }
+  },
+
   /**
    * Set metadata for multiple rows in a table
    * @param {Object} state - Vuex state
@@ -39,6 +83,8 @@ export const mutations = {
     if (!state.metadata[tableId]) {
       state.metadata[tableId] = {}
     }
+
+    const rowIds = Object.keys(metadata).map(Number)
 
     Object.entries(metadata).forEach(([rowId, rowMetadata]) => {
       if (!state.metadata[tableId][rowId]) {
@@ -53,6 +99,9 @@ export const mutations = {
         Object.assign(state.metadata[tableId][rowId][metadataType], typeData)
       })
     })
+
+    // Update LRU access order and prune if needed
+    this.commit('rowMetadata/_updateAccessOrder', { tableId, rowIds })
 
     // Force reactivity
     state.metadata = { ...state.metadata }
@@ -83,6 +132,9 @@ export const mutations = {
 
     state.metadata[tableId][rowId][metadataType][fieldId] = metadata
 
+    // Update LRU access order for this single row
+    this.commit('rowMetadata/_updateAccessOrder', { tableId, rowIds: [rowId] })
+
     state.metadata = { ...state.metadata }
   },
 
@@ -93,6 +145,7 @@ export const mutations = {
    */
   CLEAR_TABLE_METADATA(state, { tableId }) {
     delete state.metadata[tableId]
+    delete state.accessOrder[tableId]
     state.loadedTables.delete(tableId)
 
     state.metadata = { ...state.metadata }
@@ -109,9 +162,18 @@ export const mutations = {
       return
     }
 
+    const rowIdStrings = rowIds.map(String)
+
     rowIds.forEach((rowId) => {
       delete state.metadata[tableId][rowId]
     })
+
+    // Remove from access order tracking
+    if (state.accessOrder[tableId]) {
+      state.accessOrder[tableId] = state.accessOrder[tableId].filter(
+        (id) => !rowIdStrings.includes(id)
+      )
+    }
 
     state.metadata = { ...state.metadata }
   },

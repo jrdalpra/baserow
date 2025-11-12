@@ -2,6 +2,11 @@ import { notifyIf } from '@baserow/modules/core/utils/error'
 
 import FieldService from '@baserow_premium/services/field'
 
+const AI_FIELD_STATUS = {
+  GENERATING: 'g',
+  ERROR: 'e',
+}
+
 export default {
   computed: {
     generating() {
@@ -20,8 +25,8 @@ export default {
       const metadata = this.$parent?.row?._.metadata
 
       if (metadata && metadata.ai_field) {
-        const fieldMetadata = metadata.ai_field[this.field.id]
-        return fieldMetadata && fieldMetadata.status === 'generating'
+        const fieldStatus = metadata.ai_field[this.field.id]
+        return fieldStatus === AI_FIELD_STATUS.GENERATING
       }
 
       return false
@@ -29,38 +34,24 @@ export default {
     generationError() {
       const metadata = this.$parent?.row?._.metadata
       if (metadata && metadata.ai_field) {
-        const fieldMetadata = metadata.ai_field[this.field.id]
-        if (fieldMetadata && fieldMetadata.status === 'error') {
-          return (
-            fieldMetadata.error || {
-              message: this.$t('gridViewFieldAI.generationFailed'),
-            }
-          )
+        const fieldStatus = metadata.ai_field[this.field.id]
+        if (fieldStatus === AI_FIELD_STATUS.ERROR) {
+          return {
+            message: this.$t('gridViewFieldAI.generationFailed'),
+          }
         }
       }
       return null
     },
     metadataStatusIndicator() {
-      const statusMap = {
-        error: {
-          icon: 'iconoir-warning-triangle',
-          color: 'var(--color-warning)',
-          getMessage: (metadata) =>
-            metadata?.error?.message ||
-            this.$t('gridViewFieldAI.generationFailed'),
-        },
-      }
-
       const metadata = this.$parent?.row?._.metadata
       if (metadata && metadata.ai_field) {
-        const fieldMetadata = metadata.ai_field[this.field.id]
-        if (fieldMetadata && fieldMetadata.status) {
-          const indicator = statusMap[fieldMetadata.status]
-          if (indicator) {
-            return {
-              ...indicator,
-              message: indicator.getMessage(fieldMetadata),
-            }
+        const fieldStatus = metadata.ai_field[this.field.id]
+        if (fieldStatus === AI_FIELD_STATUS.ERROR) {
+          return {
+            icon: 'iconoir-warning-triangle',
+            color: 'var(--color-warning)',
+            message: this.$t('gridViewFieldAI.generationFailed'),
           }
         }
       }
@@ -110,10 +101,8 @@ export default {
       const metadata = parent.row?._.metadata
 
       if (metadata && metadata.ai_field) {
-        const fieldMetadata = metadata.ai_field[props.field.id]
-        if (fieldMetadata && fieldMetadata.status === 'generating') {
-          return true
-        }
+        const fieldStatus = metadata.ai_field[props.field.id]
+        return fieldStatus === AI_FIELD_STATUS.GENERATING
       }
 
       return false
@@ -145,14 +134,11 @@ export default {
       const previousMetadata =
         row?._.metadata?.ai_field?.[this.field.id] || null
 
-      // Clear error status optimistically
       this.$store.commit(this.storePrefix + 'view/grid/UPDATE_ROW_METADATA', {
         row,
         metadata: {
           ai_field: {
-            [this.field.id]: {
-              status: 'generating',
-            },
+            [this.field.id]: AI_FIELD_STATUS.GENERATING,
           },
         },
       })
@@ -170,19 +156,15 @@ export default {
         notifyIf(error, 'field')
 
         // Rollback metadata to previous state on error
-        if (previousMetadata) {
-          this.$store.commit(
-            this.storePrefix + 'view/grid/UPDATE_ROW_METADATA',
-            {
-              row,
-              metadata: {
-                ai_field: {
-                  [this.field.id]: previousMetadata,
-                },
-              },
-            }
-          )
-        }
+        // If there was no previous metadata, clear it entirely
+        this.$store.commit(this.storePrefix + 'view/grid/UPDATE_ROW_METADATA', {
+          row,
+          metadata: {
+            ai_field: {
+              [this.field.id]: previousMetadata || null,
+            },
+          },
+        })
 
         this.$store.dispatch(
           this.storePrefix + 'view/grid/setPendingFieldOperations',

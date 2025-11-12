@@ -10,7 +10,7 @@ def test_set_and_get_metadata(data_fixture):
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     metadata = {
@@ -37,7 +37,7 @@ def test_metadata_merge_behavior(data_fixture):
     field1 = data_fixture.create_text_field(table=table)
     field2 = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     FieldMetadataHandler.set_metadata(
@@ -63,7 +63,7 @@ def test_bulk_set_metadata(data_fixture):
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row1 = model.objects.create()
     row2 = model.objects.create()
     row3 = model.objects.create()
@@ -91,7 +91,7 @@ def test_delete_field_metadata(data_fixture):
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row1 = model.objects.create()
     row2 = model.objects.create()
 
@@ -115,7 +115,7 @@ def test_delete_field_metadata_preserves_other_keys(data_fixture):
     field1 = data_fixture.create_text_field(table=table)
     field2 = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     FieldMetadataHandler.set_metadata(model, row.id, field1.id, {"a": 1})
@@ -136,7 +136,7 @@ def test_clear_row_metadata(data_fixture):
     field1 = data_fixture.create_text_field(table=table)
     field2 = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     FieldMetadataHandler.set_metadata(model, row.id, field1.id, {"status": "success"})
@@ -156,7 +156,7 @@ def test_get_rows_by_metadata_status(data_fixture):
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row_success = model.objects.create()
     row_error = model.objects.create()
     row_pending = model.objects.create()
@@ -185,7 +185,7 @@ def test_get_rows_with_field_metadata(data_fixture):
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row_with_meta = model.objects.create()
     row_without_meta = model.objects.create()
 
@@ -227,7 +227,7 @@ def test_metadata_atomicity(data_fixture):
     table = data_fixture.create_database_table(user=user)
     field = data_fixture.create_text_field(table=table)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     FieldMetadataHandler.set_metadata(

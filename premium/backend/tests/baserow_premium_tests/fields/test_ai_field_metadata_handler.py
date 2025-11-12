@@ -15,7 +15,7 @@ def test_ai_field_metadata_handler_set_generating(premium_data_fixture):
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     AIFieldMetadataHandler.set_generating(model, row.id, ai_field.id)
@@ -35,7 +35,7 @@ def test_ai_field_metadata_handler_set_success(premium_data_fixture):
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     AIFieldMetadataHandler.set_generating(model, row.id, ai_field.id)
@@ -59,7 +59,7 @@ def test_ai_field_metadata_handler_set_error(premium_data_fixture):
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     AIFieldMetadataHandler.set_generating(model, row.id, ai_field.id)

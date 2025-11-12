@@ -5,12 +5,26 @@ import FieldService from '@baserow_premium/services/field'
 export default {
   data() {
     return {
-      generating: false,
+      localGenerating: false,
     }
   },
   computed: {
     workspace() {
       return this.$store.getters['workspace/get'](this.workspaceId)
+    },
+    table() {
+      // Get table from parent RowEditModalField component
+      return this.$parent.$parent.table
+    },
+    generating() {
+      // Check rowMetadata store for generating status from websocket updates
+      const status = this.$store.getters['rowMetadata/getAIFieldStatus'](
+        this.table.id,
+        this.row.id,
+        this.field.id
+      )
+      // Combine with local state for immediate feedback when user clicks generate
+      return status === 'generating' || this.localGenerating
     },
     modelAvailable() {
       const aIModels =
@@ -37,19 +51,20 @@ export default {
   },
   watch: {
     value() {
-      this.generating = false
+      // Clear local generating state when value updates
+      this.localGenerating = false
     },
   },
   methods: {
     async generate() {
-      this.generating = true
+      this.localGenerating = true
       try {
         await FieldService(this.$client).generateAIFieldValues(this.field.id, [
           this.$parent.row.id,
         ])
       } catch (error) {
         notifyIf(error, 'field')
-        this.generating = false
+        this.localGenerating = false
       }
     },
   },

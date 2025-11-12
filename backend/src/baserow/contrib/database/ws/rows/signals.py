@@ -157,7 +157,7 @@ def rows_metadata_updated(sender, table, row_ids, user, **kwargs):
                     user, table, row_ids
                 ),
             ),
-            getattr(user, "web_socket_id", None),
+            None,
             table_id=table.id,
         )
     )

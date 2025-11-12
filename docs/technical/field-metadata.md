@@ -19,7 +19,7 @@ ALTER TABLE database_table_123
 ADD COLUMN field_metadata JSONB NOT NULL DEFAULT '{}';
 ```
 
-The column is added via Django's schema editor when `FieldMetadataHandler.ensure_metadata_column_exists()` is called. Indexes are not automatically created but can be added if query performance requires them.
+The column is automatically included in the table model when `field_metadata_column_added=True` (default for all tables after migration 0202). Indexes are not automatically created but can be added if query performance requires them.
 
 **Structure**:
 ```json
@@ -50,20 +50,18 @@ The column is added via Django's schema editor when `FieldMetadataHandler.ensure
 
 #### Column Management
 
-The `field_metadata` column is added on-demand via migration:
+The `field_metadata` column is automatically included for all tables:
 
 ```python
 from baserow.contrib.database.fields.metadata_handler import FieldMetadataHandler
 
-# Check if enabled
+# Check if metadata is available
+model = table.get_model()
 if FieldMetadataHandler.is_metadata_enabled(model):
-    # Column exists, safe to use
-
-# Ensure column exists (for tests/migrations)
-model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    # Column exists, safe to use metadata operations
 ```
 
-**Table model tracking**: The `Table` model has a `field_metadata_column_added` boolean flag to track which tables have the column.
+**Table model tracking**: The `Table` model has a `field_metadata_column_added` boolean flag (defaults to `True` after migration 0202) that determines whether the column is included in the generated model.
 
 ### Core Components
 

@@ -1,3 +1,4 @@
+from django.db import transaction
 from typing import Type
 
 from django.db.models import QuerySet
@@ -10,13 +11,17 @@ from baserow.contrib.database.api.fields.errors import ERROR_FIELD_DOES_NOT_EXIS
 from baserow.contrib.database.api.views.errors import ERROR_VIEW_DOES_NOT_EXIST
 from baserow.contrib.database.fields.exceptions import FieldDoesNotExist
 from baserow.contrib.database.fields.handler import FieldHandler
+from baserow.contrib.database.fields.metadata_handler import FieldMetadataHandler
 from baserow.contrib.database.fields.operations import ListFieldsOperationType
 from baserow.contrib.database.rows.exceptions import RowDoesNotExist
 from baserow.contrib.database.rows.handler import RowHandler
 from baserow.contrib.database.rows.runtime_formula_contexts import (
     HumanReadableRowContext,
 )
-from baserow.contrib.database.rows.signals import rows_ai_values_generation_error
+from baserow.contrib.database.rows.signals import (
+    rows_ai_values_generation_error,
+    rows_metadata_updated,
+)
 from baserow.contrib.database.table.models import GeneratedTableModel
 from baserow.contrib.database.views.exceptions import ViewDoesNotExist
 from baserow.contrib.database.views.handler import ViewHandler
@@ -34,6 +39,7 @@ from baserow.core.jobs.exceptions import MaxJobCountExceeded
 from baserow.core.jobs.registries import JobType
 from baserow.core.utils import ChildProgressBuilder
 
+from .ai_field_metadata import AIFieldMetadataHandler
 from .models import AIField, GenerateAIValuesJob
 from .registries import ai_field_output_registry
 
@@ -280,6 +286,22 @@ class GenerateAIValuesJobType(JobType):
 
         ai_output_type = ai_field_output_registry.get(ai_field.ai_output_type)
 
+        # Check if metadata tracking is enabled for this table
+        has_metadata_column = FieldMetadataHandler.is_metadata_enabled(model)
+
+        # Get all row IDs that will be processed and mark them as generating
+        # This happens BEFORE the loop so users see the generating state immediately
+        if has_metadata_column:
+            row_ids = list(rows.values_list("id", flat=True))
+            if row_ids:
+                AIFieldMetadataHandler.set_generating_for_rows(ai_field, row_ids)
+                rows_metadata_updated.send(
+                    sender=self,
+                    table=table,
+                    row_ids=row_ids,
+                    user=user,
+                )
+
         progress_builder = progress.create_child_builder(
             represents_progress=progress.total
         )
@@ -333,6 +355,25 @@ class GenerateAIValuesJobType(JobType):
                 # match it to a `SelectOption`, for example.
                 value = ai_output_type.parse_output(value, ai_field)
             except Exception as exc:
+                # Mark as error and notify websocket subscribers
+                # Wrap in transaction so the signal handler's on_commit works properly
+                if has_metadata_column:
+                    with transaction.atomic():
+                        AIFieldMetadataHandler.set_error(
+                            model,
+                            row.id,
+                            ai_field.id,
+                            str(exc),
+                            exc.__class__.__name__,
+                        )
+
+                        rows_metadata_updated.send(
+                            sender=self,
+                            table=table,
+                            row_ids=[row.id],
+                            user=user,
+                        )
+
                 # If the prompt fails once, we should not continue with the other rows.
                 # Note: rows might be a generator, so we can't slice it
                 rows_ai_values_generation_error.send(
@@ -345,15 +386,24 @@ class GenerateAIValuesJobType(JobType):
                 )
                 raise exc
 
-            # FIXME: manually set the websocket_id to None for now because the frontend
-            # needs to receive the update to stop the loading state
-            user.web_socket_id = None
-            RowHandler().update_row_by_id(
-                user,
-                table,
-                row.id,
-                {ai_field.db_column: value},
-                model=model,
-                values_already_prepared=True,
-            )
+            # Update row value and mark as success in the same transaction
+            # This ensures the websocket signal includes the correct metadata
+            with transaction.atomic():
+                # Mark as success BEFORE sending the signal
+                if has_metadata_column:
+                    AIFieldMetadataHandler.set_success(model, row.id, ai_field.id)
+
+                # FIXME: manually set the websocket_id to None for now because the frontend
+                # needs to receive the update to stop the loading state
+                user.web_socket_id = None
+
+                # Update row value - this triggers rows_updated signal
+                RowHandler().update_row_by_id(
+                    user,
+                    table,
+                    row.id,
+                    {ai_field.db_column: value},
+                    model=model,
+                    values_already_prepared=True,
+                )
             rows_progress.increment()

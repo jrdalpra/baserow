@@ -47,6 +47,7 @@ from baserow.core.utils import ChildProgressBuilder, Progress, find_unused_name,
 
 from .constants import (
     CREATED_BY_COLUMN_NAME,
+    FIELD_METADATA_COLUMN_NAME,
     LAST_MODIFIED_BY_COLUMN_NAME,
     TABLE_CREATION,
 )
@@ -910,3 +911,27 @@ class TableHandler(metaclass=baserow_trace_methods(tracer)):
         table.save(
             update_fields=["created_by_column_added", "last_modified_by_column_added"]
         )
+
+    def create_field_metadata_column(self, table: Table):
+        """
+        Creates the field_metadata JSONB column for the provided table if it
+        has not yet been created.
+
+        This column stores metadata for all fields in a row using a JSON structure
+        where field IDs are keys. This allows any field type to store status,
+        error information, timestamps, or other metadata about their values.
+
+        :param table: Table that should have field_metadata column.
+        """
+
+        if table.field_metadata_column_added:
+            return
+
+        table.field_metadata_column_added = True
+        model = table.get_model(use_cache=False, field_ids=[])
+
+        with safe_django_schema_editor(atomic=False) as schema_editor:
+            field_metadata_field = model._meta.get_field(FIELD_METADATA_COLUMN_NAME)
+            schema_editor.add_field(model, field_metadata_field)
+
+        table.save(update_fields=["field_metadata_column_added"])

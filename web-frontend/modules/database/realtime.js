@@ -199,6 +199,30 @@ export const registerRealtimeEvents = (realtime) => {
   realtime.registerEvent('rows_updated', async (context, data) => {
     const { app, store } = context
 
+    if (data.updated_field_ids && data.updated_field_ids.length > 0) {
+      if (!data.metadata) {
+        data.metadata = {}
+      }
+
+      data.rows.forEach((row, index) => {
+        const rowBefore = data.rows_before_update?.[index] || { id: row.id }
+
+        data.updated_field_ids.forEach((fieldId) => {
+          const field = store.getters['field/get'](fieldId)
+          if (field) {
+            const fieldType = app.$registry.get('field', field.type)
+            fieldType.onRowRealtimeUpdate(
+              context,
+              field,
+              rowBefore,
+              row,
+              data.metadata[row.id] || {}
+            )
+          }
+        })
+      })
+    }
+
     if (data.metadata && Object.keys(data.metadata).length > 0) {
       store.dispatch('rowMetadata/handleRowsUpdate', {
         tableId: data.table_id,

@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Optional
 from django.contrib.auth.models import AbstractUser
 
 from baserow_premium.fields.ai_field_metadata import AIFieldMetadataHandler
-from baserow_premium.fields.tasks import generate_ai_values_for_rows
 from baserow_premium.prompts import get_generate_formula_prompt
 from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import JsonOutputParser
@@ -17,6 +16,7 @@ from baserow.contrib.database.table.models import Table
 from baserow.core.db import specific_iterator
 from baserow.core.generative_ai.exceptions import ModelDoesNotBelongToType
 from baserow.core.generative_ai.registries import generative_ai_model_type_registry
+from baserow.core.jobs.handler import JobHandler
 
 from .pydantic_models import BaserowFormulaModel
 
@@ -49,8 +49,6 @@ class AIFieldHandler:
         :raises ModelDoesNotBelongToType: if the AI model is not available
         """
 
-        from django.db import transaction
-
         table = ai_field.table
         workspace = table.database.workspace
         model = table.get_model()
@@ -68,15 +66,19 @@ class AIFieldHandler:
         if ai_field.ai_generative_ai_model not in ai_models:
             raise ModelDoesNotBelongToType(model_name=ai_field.ai_generative_ai_model)
 
-        with transaction.atomic():
-            has_metadata = AIFieldMetadataHandler.set_generating_for_rows(
-                ai_field, row_ids
-            )
+        # Set "generating" status for visual feedback
+        has_metadata = AIFieldMetadataHandler.set_generating_for_rows(ai_field, row_ids)
 
         if has_metadata:
             AIFieldMetadataHandler.broadcast_generation_started(ai_field, row_ids, user)
 
-        generate_ai_values_for_rows.delay(user.id, ai_field.id, row_ids)
+        # Create and start the job asynchronously
+        JobHandler().create_and_start_job(
+            user,
+            "generate_ai_values",
+            field_id=ai_field.id,
+            row_ids=row_ids,
+        )
 
     @classmethod
     def generate_formula_with_ai(

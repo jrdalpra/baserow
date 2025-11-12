@@ -12,6 +12,9 @@ export const GRID_VIEW_SIZE_TO_ROW_HEIGHT_MAPPING = {
 
 export const GRID_VIEW_MIN_FIELD_WIDTH = 78
 
+// The amount of rows that will be requested per request in grid view
+export const GRID_VIEW_BUFFER_REQUEST_SIZE = 40
+
 export const GRID_VIEW_MULTI_SELECT_AREA = 'area'
 export const GRID_VIEW_MULTI_SELECT_CHECKBOX = 'checkbox'
 

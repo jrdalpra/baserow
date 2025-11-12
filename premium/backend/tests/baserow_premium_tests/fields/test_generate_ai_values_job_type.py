@@ -8,11 +8,12 @@ from django.test.utils import override_settings
 
 import pytest
 from baserow_premium.fields.models import GenerateAIValuesJob
-from baserow_premium.fields.tasks import generate_ai_values_for_rows
 
 from baserow.contrib.database.fields.exceptions import FieldDoesNotExist
 from baserow.contrib.database.fields.handler import FieldHandler
 from baserow.contrib.database.rows.exceptions import RowDoesNotExist
+from baserow.contrib.database.fields.handler import FieldHandler
+from baserow.contrib.database.fields.metadata_handler import FieldMetadataHandler
 from baserow.contrib.database.rows.handler import RowHandler
 from baserow.contrib.database.views.exceptions import ViewDoesNotExist
 from baserow.core.generative_ai.exceptions import GenerativeAIPromptError
@@ -726,7 +727,7 @@ def test_generate_ai_field_value_sends_metadata_updated_signal_on_start(
     database = premium_data_fixture.create_database_application(user=user)
     table = premium_data_fixture.create_database_table(database=database)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
 
     field = premium_data_fixture.create_ai_field(
         table=table, name="ai", ai_prompt="'Hello'"
@@ -738,7 +739,9 @@ def test_generate_ai_field_value_sends_metadata_updated_signal_on_start(
     patched_rows_metadata_updated.reset_mock()
     patched_rows_updated.reset_mock()
 
-    generate_ai_values_for_rows(user.id, field.id, [row.id])
+    JobHandler().create_and_start_job(
+        user, "generate_ai_values", sync=True, field_id=field.id, row_ids=[row.id]
+    )
 
     assert patched_rows_metadata_updated.call_count == 1
 
@@ -770,7 +773,7 @@ def test_generate_ai_field_value_sends_metadata_updated_signal_on_error(
     database = premium_data_fixture.create_database_application(user=user)
     table = premium_data_fixture.create_database_table(database=database)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
 
     field = premium_data_fixture.create_ai_field(
         table=table,
@@ -785,7 +788,9 @@ def test_generate_ai_field_value_sends_metadata_updated_signal_on_error(
     patched_rows_metadata_updated.reset_mock()
 
     with pytest.raises(GenerativeAIPromptError):
-        generate_ai_values_for_rows(user.id, field.id, [row.id])
+        JobHandler().create_and_start_job(
+            user, "generate_ai_values", sync=True, field_id=field.id, row_ids=[row.id]
+        )
 
     assert patched_rows_metadata_updated.call_count == 2
 
@@ -819,7 +824,7 @@ def test_generate_ai_field_value_includes_metadata_in_rows_updated_signal(
     database = premium_data_fixture.create_database_application(user=user)
     table = premium_data_fixture.create_database_table(database=database)
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
 
     field = premium_data_fixture.create_ai_field(
         table=table, name="ai", ai_prompt="'Hello'"
@@ -830,7 +835,9 @@ def test_generate_ai_field_value_includes_metadata_in_rows_updated_signal(
 
     patched_rows_updated.reset_mock()
 
-    generate_ai_values_for_rows(user.id, field.id, [row.id])
+    JobHandler().create_and_start_job(
+        user, "generate_ai_values", sync=True, field_id=field.id, row_ids=[row.id]
+    )
 
     assert patched_rows_updated.call_count == 1
 
@@ -863,7 +870,7 @@ def test_generate_ai_field_value_preserves_generation_started_timestamp(
     table = premium_data_fixture.create_database_table(database=database)
 
     # Ensure metadata column exists
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
 
     field = premium_data_fixture.create_ai_field(
         table=table, name="ai", ai_prompt="'Hello'"
@@ -872,7 +879,9 @@ def test_generate_ai_field_value_preserves_generation_started_timestamp(
     rows = RowHandler().create_rows(user, table, rows_values=[{}]).created_rows
     row = rows[0]
 
-    generate_ai_values_for_rows(user.id, field.id, [row.id])
+    JobHandler().create_and_start_job(
+        user, "generate_ai_values", sync=True, field_id=field.id, row_ids=[row.id]
+    )
 
     # Verify metadata has both started and finished timestamps
     row.refresh_from_db()

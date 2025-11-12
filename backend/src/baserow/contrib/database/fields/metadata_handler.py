@@ -1,12 +1,11 @@
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from django.db import connection, models
-from django.db.models import F, Func, Value
+from django.db import models
+from django.db.models import Case, F, Func, JSONField, Value, When
 
-from baserow.contrib.database.table.cache import clear_generated_model_cache
 from baserow.contrib.database.table.constants import FIELD_METADATA_COLUMN_NAME
-from baserow.contrib.database.table.models import GeneratedTableModel, Table
+from baserow.contrib.database.table.models import GeneratedTableModel
 
 
 class JSONBRemoveKey(Func):
@@ -72,36 +71,6 @@ class FieldMetadataHandler:
             db_default={},
             help_text="Stores metadata for all fields in this row.",
         )
-
-    @classmethod
-    def ensure_metadata_column_exists(cls, table: Table) -> GeneratedTableModel:
-        """
-        Ensures the field_metadata column exists on the table.
-        This is useful for tests or programmatically ensuring the column is present.
-
-        :param table: The Table instance to add the column to
-        :return: The regenerated model with the column
-
-        Example:
-            >>> table = Table.objects.first()
-            >>> model = FieldMetadataHandler.ensure_metadata_column_exists(table)
-        """
-
-        if table.field_metadata_column_added:
-            return table.get_model()
-
-        model = table.get_model(field_ids=[], add_dependencies=False)
-        column = cls.get_metadata_column()
-        column.contribute_to_class(model, cls.METADATA_COLUMN)
-
-        with connection.schema_editor() as editor:
-            editor.add_field(model, column)
-
-        table.field_metadata_column_added = True
-        table.save(update_fields=["field_metadata_column_added"])
-
-        clear_generated_model_cache()
-        return table.get_model()
 
     @classmethod
     def get_metadata(
@@ -206,7 +175,11 @@ class FieldMetadataHandler:
         updates: List[Dict[str, Any]],
     ):
         """
-        Bulk update metadata for multiple rows and fields efficiently.
+        Bulk update metadata for multiple rows and fields efficiently using a
+        single UPDATE statement with PostgreSQL's jsonb_set function.
+
+        This method updates all rows in a single database query, which is much
+        more efficient than fetching rows and using bulk_update.
 
         :param model: The generated table model class
         :param updates: List of dicts with keys: row_id, field_id, metadata
@@ -232,22 +205,52 @@ class FieldMetadataHandler:
         if not cls.is_metadata_enabled(model):
             return
 
-        updates_by_row = defaultdict(dict)
+        if not updates:
+            return
 
+        # Group updates by row_id for efficient processing
+        updates_by_row = defaultdict(dict)
         for update in updates:
             row_id = update["row_id"]
             field_id = str(update["field_id"])
             updates_by_row[row_id][field_id] = update["metadata"]
 
-        rows_to_update = []
-        for row in model.objects.filter(id__in=updates_by_row.keys()):
-            field_metadata = getattr(row, cls.METADATA_COLUMN, {})
-            field_metadata.update(updates_by_row[row.id])
-            setattr(row, cls.METADATA_COLUMN, field_metadata)
-            rows_to_update.append(row)
+        # Build a single UPDATE query that updates all rows at once
+        # For each row, we need to update multiple field_ids in the JSONB column
+        # Start with all target row IDs
+        row_ids = list(updates_by_row.keys())
 
-        if rows_to_update:
-            model.objects.bulk_update(rows_to_update, [cls.METADATA_COLUMN])
+        # Build CASE statement for each row
+        # For each row, we merge all field updates into the existing JSONB
+        whens = []
+        for row_id, field_updates in updates_by_row.items():
+            # Convert field updates to JSONB merge operation
+            # We use jsonb_set multiple times, once per field
+            jsonb_expr = F(cls.METADATA_COLUMN)
+
+            for field_id, metadata in field_updates.items():
+                # Use COALESCE to handle NULL field_metadata
+                jsonb_expr = Func(
+                    Func(
+                        jsonb_expr,
+                        Value("{}"),
+                        function="COALESCE",
+                        output_field=JSONField(),
+                    ),
+                    Value([field_id]),
+                    Value(metadata, output_field=JSONField()),
+                    Value(True),  # create_missing = true
+                    function="jsonb_set",
+                    output_field=JSONField(),
+                )
+
+            whens.append(When(id=row_id, then=jsonb_expr))
+
+        # Execute single UPDATE with CASE for all rows
+        if whens:
+            model.objects.filter(id__in=row_ids).update(
+                **{cls.METADATA_COLUMN: Case(*whens, default=F(cls.METADATA_COLUMN))}
+            )
 
     @classmethod
     def delete_field_metadata(cls, model: type[GeneratedTableModel], field_id: int):
@@ -364,3 +367,27 @@ class FieldMetadataHandler:
 
         # Use JSONB ? operator to check if key exists
         return model.objects.filter(**{f"{cls.METADATA_COLUMN}__has_key": field_id_str})
+
+    @classmethod
+    def on_field_updated(cls, field, field_type_changed: bool):
+        """
+        Handle field updates by clearing metadata if the field type changed.
+
+        When a field's type changes, any existing metadata becomes invalid
+        and should be cleared. This method encapsulates the logic for checking
+        if the type changed, if metadata is enabled, and clearing it if needed.
+
+        :param field: The field that was updated
+        :param field_type_changed: Whether the field type changed
+
+        Example:
+            >>> # After updating field 123
+            >>> FieldMetadataHandler.on_field_updated(field, field_type_changed=True)
+        """
+
+        if not field_type_changed:
+            return
+
+        model = field.table.get_model(field_ids=[], add_dependencies=False)
+        if cls.is_metadata_enabled(model):
+            cls.delete_field_metadata(model, field.id)

@@ -155,9 +155,8 @@ class AIFieldMetadataHandler:
         row_ids: list[int],
     ):
         """
-        Set generating status for multiple rows in the database.
-
-        This should be called within a transaction.
+        Set generating status for multiple rows in the database using a single
+        UPDATE statement.
 
         :param ai_field: The AI field
         :param row_ids: List of row IDs being generated
@@ -169,8 +168,19 @@ class AIFieldMetadataHandler:
         if not FieldMetadataHandler.is_metadata_enabled(model):
             return False
 
-        for row_id in row_ids:
-            cls.set_generating(model, row_id, ai_field.id)
+        timestamp = timezone.now().timestamp()
+        updates = [
+            {
+                "row_id": row_id,
+                "field_id": ai_field.id,
+                "metadata": {
+                    AIMetadataKeys.STATUS: AIGenerationStatus.GENERATING,
+                    AIMetadataKeys.GENERATION_STARTED_AT: timestamp,
+                },
+            }
+            for row_id in row_ids
+        ]
+        FieldMetadataHandler.bulk_set_metadata(model, updates)
 
         return True
 

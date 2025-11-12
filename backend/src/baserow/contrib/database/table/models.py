@@ -891,8 +891,8 @@ class Table(
         help_text="Indicates whether the table has had the field_rules_are_valid column added.",
     )
     field_metadata_column_added = models.BooleanField(
-        db_default=False,
-        default=False,
+        default=True,
+        db_default=True,
         null=True,
         help_text="Indicates whether the table has had the field_metadata column added.",
     )

@@ -31,6 +31,7 @@ import {
 import { getDefaultSearchModeFromEnv } from '@baserow/modules/database/utils/search'
 import { fieldValuesAreEqualInObjects } from '@baserow/modules/database/utils/groupBy'
 import {
+  GRID_VIEW_BUFFER_REQUEST_SIZE,
   GRID_VIEW_MULTI_SELECT_AREA,
   GRID_VIEW_MULTI_SELECT_CHECKBOX,
   LINKED_ITEMS_LOAD_ALL,
@@ -192,7 +193,7 @@ export const state = () => ({
   // The amount of rows that must be visible above and under the middle row.
   rowPadding: 16,
   // The amount of rows that will be requested per request.
-  bufferRequestSize: 40,
+  bufferRequestSize: GRID_VIEW_BUFFER_REQUEST_SIZE,
   // The start index of the buffer in the whole table.
   bufferStartIndex: 0,
   // The limit of the buffer measured from the start index in the whole table.
@@ -549,11 +550,16 @@ export const mutations = {
         if (!mergedMetadata[metadataType]) {
           mergedMetadata[metadataType] = {}
         }
-        // Deep merge field-level metadata
-        mergedMetadata[metadataType] = {
-          ...mergedMetadata[metadataType],
-          ...metadata[metadataType],
-        }
+        // Deep merge field-level metadata, but remove fields with null values
+        const newTypeMetadata = { ...mergedMetadata[metadataType] }
+        Object.entries(metadata[metadataType]).forEach(([key, value]) => {
+          if (value === null) {
+            delete newTypeMetadata[key]
+          } else {
+            newTypeMetadata[key] = value
+          }
+        })
+        mergedMetadata[metadataType] = newTypeMetadata
       })
 
       // Use Vue.set to ensure reactivity
@@ -2993,36 +2999,29 @@ export const actions = {
    * that is will be deleted or created depending if was already in the view.
    */
   async updatedExistingRow(
-    { commit, getters, dispatch },
-    { view, fields, row, values, metadata, updatedFieldIds = [] }
+    { commit, getters, dispatch, rootGetters },
+    { view, fields, row, values, metadata = {}, updatedFieldIds = [] }
   ) {
     const oldRow = clone(row)
     const newRow = Object.assign(clone(row), values)
     populateRow(oldRow, metadata)
     populateRow(newRow, metadata)
 
-    // Clear pending field operations for AI fields that have been updated
-    // Check if metadata indicates successful generation (status changed from 'generating' to 'success')
-    if (metadata && oldRow._.metadata && newRow._.metadata) {
-      const oldAIMetadata = oldRow._.metadata.ai_field || {}
-      const newAIMetadata = newRow._.metadata.ai_field || {}
-
-      Object.keys(newAIMetadata).forEach((fieldId) => {
-        const oldStatus = oldAIMetadata[fieldId]?.status
-        const newStatus = newAIMetadata[fieldId]?.status
-
-        if (
-          oldStatus === 'generating' &&
-          (newStatus === 'success' || newStatus === 'error')
-        ) {
-          commit('SET_PENDING_FIELD_OPERATIONS', {
-            fieldId: parseInt(fieldId),
-            rowIds: [row.id],
-            value: false,
-          })
-        }
-      })
-    }
+    // Delegate to field types to handle their specific realtime update logic
+    // This allows each field type to decide what to do when metadata changes
+    updatedFieldIds.forEach((fieldId) => {
+      const field = rootGetters['field/get'](fieldId)
+      if (field) {
+        const fieldType = this.app.$registry.get('field', field.type)
+        fieldType.onRowRealtimeUpdate(
+          { store: this, commit, getters, dispatch },
+          field,
+          oldRow,
+          newRow,
+          metadata[row.id] || {}
+        )
+      }
+    })
 
     await dispatch('updateMatchFilters', { view, row: oldRow, fields })
     await dispatch('updateSearchMatchesForRow', { row: oldRow, fields })

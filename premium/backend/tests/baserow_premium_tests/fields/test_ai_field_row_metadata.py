@@ -1,3 +1,7 @@
+from unittest.mock import patch
+
+from django.utils import timezone
+
 import pytest
 from baserow_premium.fields.ai_field_metadata import (
     AIFieldMetadataHandler,
@@ -21,7 +25,7 @@ def test_ai_field_metadata_type_registered(premium_data_fixture):
 def test_ai_field_metadata_type_no_ai_fields(premium_data_fixture):
     user = premium_data_fixture.create_user()
     table = premium_data_fixture.create_database_table(user=user)
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     metadata_type = row_metadata_registry.get("ai_field")
@@ -52,7 +56,7 @@ def test_ai_field_metadata_type_single_field(premium_data_fixture):
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     AIFieldMetadataHandler.set_generating(model, row.id, ai_field.id)
@@ -63,10 +67,9 @@ def test_ai_field_metadata_type_single_field(premium_data_fixture):
     assert row.id in result
     assert str(ai_field.id) in result[row.id]
 
-    field_metadata = result[row.id][str(ai_field.id)]
-    assert field_metadata["status"] == "generating"
-    assert "generation_started_at" in field_metadata
-    assert "error" not in field_metadata
+    # New format: single letter "g" for generating
+    field_status = result[row.id][str(ai_field.id)]
+    assert field_status == "g"
 
 
 @pytest.mark.django_db
@@ -77,7 +80,7 @@ def test_ai_field_metadata_type_multiple_fields(premium_data_fixture):
     ai_field1 = premium_data_fixture.create_ai_field(table=table, name="AI 1")
     ai_field2 = premium_data_fixture.create_ai_field(table=table, name="AI 2")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row = model.objects.create()
 
     AIFieldMetadataHandler.set_generating(model, row.id, ai_field1.id)
@@ -88,17 +91,12 @@ def test_ai_field_metadata_type_multiple_fields(premium_data_fixture):
     result = metadata_type.generate_metadata_for_rows(user, table, [row.id])
 
     assert row.id in result
+    # New format: only generating status is shown
     assert str(ai_field1.id) in result[row.id]
-    assert str(ai_field2.id) in result[row.id]
+    assert result[row.id][str(ai_field1.id)] == "g"
 
-    field1_metadata = result[row.id][str(ai_field1.id)]
-    assert field1_metadata["status"] == "generating"
-    assert "generation_started_at" in field1_metadata
-
-    field2_metadata = result[row.id][str(ai_field2.id)]
-    assert field2_metadata["status"] == "success"
-    assert "generation_started_at" in field2_metadata
-    assert "generation_finished_at" in field2_metadata
+    # Success status is not shown in new format
+    assert str(ai_field2.id) not in result[row.id]
 
 
 @pytest.mark.django_db
@@ -108,7 +106,7 @@ def test_ai_field_metadata_type_multiple_rows(premium_data_fixture):
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row1 = model.objects.create()
     row2 = model.objects.create()
 
@@ -123,13 +121,9 @@ def test_ai_field_metadata_type_multiple_rows(premium_data_fixture):
     assert row1.id in result
     assert row2.id in result
 
-    assert result[row1.id][str(ai_field.id)]["status"] == "generating"
-
-    row2_metadata = result[row2.id][str(ai_field.id)]
-    assert row2_metadata["status"] == "error"
-    assert "error" in row2_metadata
-    assert row2_metadata["error"]["message"] == "Test error"
-    assert row2_metadata["error"]["type"] == "ValueError"
+    # New format: single letters
+    assert result[row1.id][str(ai_field.id)] == "g"
+    assert result[row2.id][str(ai_field.id)] == "e"
 
 
 @pytest.mark.django_db
@@ -139,27 +133,41 @@ def test_ai_field_metadata_type_status_transformation(premium_data_fixture):
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
 
     metadata_type = row_metadata_registry.get("ai_field")
 
-    statuses = [
-        (AIGenerationStatus.PENDING, "pending"),
-        (AIGenerationStatus.GENERATING, "generating"),
-        (AIGenerationStatus.SUCCESS, "success"),
-        (AIGenerationStatus.ERROR, "error"),
-    ]
+    # New format: only generating and error are shown as single letters
+    # Test generating status
+    row_generating = model.objects.create()
+    FieldMetadataHandler.set_metadata(
+        model, row_generating.id, ai_field.id, {"s": AIGenerationStatus.GENERATING}
+    )
+    result = metadata_type.generate_metadata_for_rows(user, table, [row_generating.id])
+    assert result[row_generating.id][str(ai_field.id)] == "g"
 
-    for status_enum, expected_string in statuses:
-        row = model.objects.create()
+    # Test error status
+    row_error = model.objects.create()
+    AIFieldMetadataHandler.set_error(
+        model, row_error.id, ai_field.id, "Test error", "ValueError"
+    )
+    result = metadata_type.generate_metadata_for_rows(user, table, [row_error.id])
+    assert result[row_error.id][str(ai_field.id)] == "e"
 
-        FieldMetadataHandler.set_metadata(
-            model, row.id, ai_field.id, {"s": status_enum}
-        )
+    # Test pending and success statuses are not shown
+    row_pending = model.objects.create()
+    FieldMetadataHandler.set_metadata(
+        model, row_pending.id, ai_field.id, {"s": AIGenerationStatus.PENDING}
+    )
+    result = metadata_type.generate_metadata_for_rows(user, table, [row_pending.id])
+    assert row_pending.id not in result
 
-        result = metadata_type.generate_metadata_for_rows(user, table, [row.id])
-
-        assert result[row.id][str(ai_field.id)]["status"] == expected_string
+    row_success = model.objects.create()
+    FieldMetadataHandler.set_metadata(
+        model, row_success.id, ai_field.id, {"s": AIGenerationStatus.SUCCESS}
+    )
+    result = metadata_type.generate_metadata_for_rows(user, table, [row_success.id])
+    assert row_success.id not in result
 
 
 @pytest.mark.django_db
@@ -169,7 +177,7 @@ def test_ai_field_metadata_type_no_metadata_for_field(premium_data_fixture):
     table = premium_data_fixture.create_database_table(user=user)
     ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
 
-    model = FieldMetadataHandler.ensure_metadata_column_exists(table)
+    model = table.get_model()
     row_with_metadata = model.objects.create()
     row_without_metadata = model.objects.create()
 
@@ -186,10 +194,42 @@ def test_ai_field_metadata_type_no_metadata_for_field(premium_data_fixture):
 
 @pytest.mark.django_db
 @pytest.mark.field_ai
+def test_ai_field_metadata_type_error_expiration(premium_data_fixture):
+    user = premium_data_fixture.create_user()
+    table = premium_data_fixture.create_database_table(user=user)
+    ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
+
+    model = table.get_model()
+    row = model.objects.create()
+
+    # Set error with current timestamp
+    AIFieldMetadataHandler.set_error(
+        model, row.id, ai_field.id, "Test error", "ValueError"
+    )
+
+    metadata_type = row_metadata_registry.get("ai_field")
+
+    # Error should be visible immediately
+    result = metadata_type.generate_metadata_for_rows(user, table, [row.id])
+    assert result[row.id][str(ai_field.id)] == "e"
+
+    # Mock time to be after expiration (1 hour + 1 second)
+    future_time = timezone.now().timestamp() + 3601
+
+    with patch("django.utils.timezone.now") as mock_now:
+        mock_now.return_value.timestamp.return_value = future_time
+
+        # Error should not be visible after expiration
+        result = metadata_type.generate_metadata_for_rows(user, table, [row.id])
+        assert row.id not in result
+
+
+@pytest.mark.django_db
+@pytest.mark.field_ai
 def test_ai_field_metadata_type_serializer_field(premium_data_fixture):
     metadata_type = row_metadata_registry.get("ai_field")
     serializer_field = metadata_type.get_example_serializer_field()
 
     assert serializer_field is not None
     assert hasattr(serializer_field, "help_text")
-    assert "AI field" in serializer_field.help_text
+    assert "status indicators" in serializer_field.help_text

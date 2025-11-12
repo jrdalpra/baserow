@@ -127,6 +127,15 @@ def setup_created_by_and_last_modified_by_column(self, table_id: int):
         TableHandler().create_created_by_and_last_modified_by_fields(table)
 
 
+@app.task(bind=True, queue="export")
+def setup_field_metadata_column(self, table_id: int):
+    from baserow.contrib.database.table.handler import TableHandler
+
+    with transaction.atomic():
+        table = TableHandler().get_table_for_update(table_id)
+        TableHandler().create_field_metadata_column(table)
+
+
 @app.task(bind=True)
 def update_table_usage(self, table_id: int, row_count: int = 0):
     from baserow.contrib.database.table.handler import TableUsageHandler

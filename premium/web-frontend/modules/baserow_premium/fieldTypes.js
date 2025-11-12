@@ -139,6 +139,34 @@ export class AIFieldType extends FieldType {
     return this.getBaserowFieldType(field).canRepresentFiles(field)
   }
 
+  onRowRealtimeUpdate(context, field, rowBefore, rowAfter) {
+    // Safety check: ensure rows have metadata populated
+    if (!rowBefore._ || !rowAfter._) {
+      return
+    }
+
+    // Check if AI field generation status changed by comparing old and new metadata
+    const oldMetadata = rowBefore._.metadata?.ai_field?.[field.id]
+    const newMetadata = rowAfter._.metadata?.ai_field?.[field.id]
+
+    const oldStatus = oldMetadata?.status
+    const newStatus = newMetadata?.status
+
+    // Clear spinner if:
+    // 1. Status changed from 'generating' to 'success' or 'error'
+    // 2. Status was 'generating' and now there's no metadata (indicates success)
+    if (
+      oldStatus === 'generating' &&
+      (newStatus === 'success' || newStatus === 'error' || !newStatus)
+    ) {
+      context.commit('SET_PENDING_FIELD_OPERATIONS', {
+        fieldId: field.id,
+        rowIds: [rowAfter.id],
+        value: false,
+      })
+    }
+  }
+
   getHasEmptyValueFilterFunction(field) {
     return this.getBaserowFieldType(field).getHasEmptyValueFilterFunction(field)
   }
