@@ -128,6 +128,7 @@ import {
   RuntimeIf,
   RuntimeAnd,
   RuntimeOr,
+  RuntimeReplace,
 } from '@baserow/modules/core/runtimeFormulaTypes'
 
 import priorityBus from '@baserow/modules/core/plugins/priorityBus'
@@ -309,6 +310,7 @@ export default (context, inject) => {
   registry.register('runtimeFormulaFunction', new RuntimeIf(context))
   registry.register('runtimeFormulaFunction', new RuntimeAnd(context))
   registry.register('runtimeFormulaFunction', new RuntimeOr(context))
+  registry.register('runtimeFormulaFunction', new RuntimeReplace(context))
 
   registry.register('roles', new AdminRoleType(context))
   registry.register('roles', new MemberRoleType(context))
