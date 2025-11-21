@@ -1930,7 +1930,7 @@ export class RuntimeReverse extends RuntimeFormulaFunction {
   }
 
   get args() {
-    return [new TextBaserowRuntimeFormulaArgumentType()]
+    return [new AnyBaserowRuntimeFormulaArgumentType()]
   }
 
   execute(context, [arg]) {
