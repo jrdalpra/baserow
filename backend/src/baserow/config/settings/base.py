@@ -11,11 +11,7 @@ from urllib.parse import urljoin, urlparse
 from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
-import posthog
-import sentry_sdk
 from corsheaders.defaults import default_headers
-from sentry_sdk.integrations.django import DjangoIntegration
-from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 
 from baserow.config.settings.utils import (
     Setting,
@@ -1243,13 +1239,8 @@ PG_FULLTEXT_SEARCH_UPDATE_DATA_THROTTLE_SECONDS = float(
 )
 
 POSTHOG_PROJECT_API_KEY = os.getenv("POSTHOG_PROJECT_API_KEY", "")
-POSTHOG_HOST = os.getenv("POSTHOG_HOST", "")
-POSTHOG_ENABLED = POSTHOG_PROJECT_API_KEY and POSTHOG_HOST
-if POSTHOG_ENABLED:
-    posthog.project_api_key = POSTHOG_PROJECT_API_KEY
-    posthog.host = POSTHOG_HOST
-else:
-    posthog.disabled = True
+POSTHOG_HOST = os.getenv("POSTHOG_HOST") or None
+POSTHOG_ENABLED = bool(POSTHOG_PROJECT_API_KEY)
 
 BASEROW_BUILDER_DOMAINS = os.getenv("BASEROW_BUILDER_DOMAINS", None)
 BASEROW_BUILDER_DOMAINS = (
@@ -1275,9 +1266,14 @@ for plugin in [*BASEROW_BUILT_IN_PLUGINS, *BASEROW_BACKEND_PLUGIN_NAMES]:
 
 SENTRY_BACKEND_DSN = os.getenv("SENTRY_BACKEND_DSN")
 SENTRY_DSN = SENTRY_BACKEND_DSN or os.getenv("SENTRY_DSN")
-SENTRY_DENYLIST = DEFAULT_DENYLIST + ["username", "email", "name"]
 
 if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
+
+    SENTRY_DENYLIST = DEFAULT_DENYLIST + ["username", "email", "name"]
+
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         integrations=[DjangoIntegration(signals_spans=False, middleware_spans=False)],
