@@ -51,24 +51,26 @@ describe('elementTypes tests', () => {
       page.elementMap = { 456: elementParent, 789: element }
       const elementType = testApp.getRegistry().get('element', element.type)
       expect(elementType.hasAncestorOfType(page, element, 'column')).toBe(true)
-      expect(elementType.hasAncestorOfType(page, element, 'repeat')).toBe(false)
+      expect(elementType.hasAncestorOfType(page, element, 'iterate')).toBe(
+        false
+      )
     })
 
     test('hasCollectionAncestor', () => {
       const page = { id: 123 }
-      const repeatAncestor = { id: 111, type: 'repeat', page_id: page.id }
+      const iterateAncestor = { id: 111, type: 'iterate', page_id: page.id }
       const tableElement = {
         id: 222,
         type: 'table',
         page_id: page.id,
-        parent_element_id: repeatAncestor.id,
+        parent_element_id: iterateAncestor.id,
       }
-      page.elementMap = { 111: repeatAncestor, 222: tableElement }
-      const repeatElementType = testApp
+      page.elementMap = { 111: iterateAncestor, 222: tableElement }
+      const iterateElementType = testApp
         .getRegistry()
-        .get('element', repeatAncestor.type)
+        .get('element', iterateAncestor.type)
       expect(
-        repeatElementType.hasCollectionAncestor(page, repeatAncestor)
+        iterateElementType.hasCollectionAncestor(page, iterateAncestor)
       ).toBe(false)
       const tableElementType = testApp
         .getRegistry()
@@ -79,15 +81,15 @@ describe('elementTypes tests', () => {
     })
 
     test('hasSourceOfData', () => {
-      const repeatElementType = testApp.getRegistry().get('element', 'repeat')
-      expect(repeatElementType.hasSourceOfData({ data_source_id: 1 })).toBe(
+      const iterateElementType = testApp.getRegistry().get('element', 'iterate')
+      expect(iterateElementType.hasSourceOfData({ data_source_id: 1 })).toBe(
         true
       )
       expect(
-        repeatElementType.hasSourceOfData({ schema_property: 'field_1' })
+        iterateElementType.hasSourceOfData({ schema_property: 'field_1' })
       ).toBe(true)
       expect(
-        repeatElementType.hasSourceOfData({
+        iterateElementType.hasSourceOfData({
           data_source_id: null,
           schema_property: null,
         })
@@ -824,20 +826,20 @@ describe('elementTypes tests', () => {
       ).toEqual('elementType.notAllowedInsideSameType')
     })
     test('IterateElementType allow itself as a nested child.', () => {
-      const repeatContainerElementType = testApp
+      const iterateContainerElementType = testApp
         .getRegistry()
-        .get('element', 'repeat')
+        .get('element', 'iterate')
 
       const page = { id: 123 }
-      const repeatAncestor = { id: 111, type: 'repeat', page_id: page.id }
+      const iterateAncestor = { id: 111, type: 'iterate', page_id: page.id }
 
-      page.elementMap = { 111: repeatAncestor }
+      page.elementMap = { 111: iterateAncestor }
 
       expect(
-        repeatContainerElementType.isDisallowedReason({
+        iterateContainerElementType.isDisallowedReason({
           builder: { id: 1 },
           page,
-          parentElement: repeatAncestor,
+          parentElement: iterateAncestor,
           beforeElement: null,
           placeInContainer: 'content',
         })
