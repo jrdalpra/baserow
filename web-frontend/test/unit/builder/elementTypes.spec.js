@@ -823,7 +823,7 @@ describe('elementTypes tests', () => {
         })
       ).toEqual('elementType.notAllowedInsideSameType')
     })
-    test('RepeatElementType allow itself as a nested child.', () => {
+    test('IterateElementType allow itself as a nested child.', () => {
       const repeatContainerElementType = testApp
         .getRegistry()
         .get('element', 'repeat')
