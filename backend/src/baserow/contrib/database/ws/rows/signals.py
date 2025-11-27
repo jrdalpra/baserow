@@ -148,6 +148,7 @@ def rows_metadata_updated(sender, table, row_ids, user, **kwargs):
     """
 
     table_page_type = page_registry.get("table")
+    ignore_web_socket_id = getattr(user, "web_socket_id", None)
     transaction.on_commit(
         lambda: table_page_type.broadcast(
             RealtimeRowMessages.rows_metadata_updated(
@@ -157,7 +158,7 @@ def rows_metadata_updated(sender, table, row_ids, user, **kwargs):
                     user, table, row_ids
                 ),
             ),
-            None,
+            ignore_web_socket_id,
             table_id=table.id,
         )
     )

@@ -533,7 +533,10 @@ export const mutations = {
       const existingRowState = state.rows[index]
       Object.assign(existingRowState, values)
       if (metadata) {
-        existingRowState._.metadata = metadata
+        if (!existingRowState._) {
+          Vue.set(existingRowState, '_', {})
+        }
+        Vue.set(existingRowState._, 'metadata', metadata)
       }
     }
   },
@@ -542,8 +545,12 @@ export const mutations = {
     if (index !== -1) {
       const existingRowState = state.rows[index]
 
+      if (!existingRowState._) {
+        Vue.set(existingRowState, '_', {})
+      }
+
       // Deep merge new metadata with existing metadata
-      const mergedMetadata = { ...existingRowState._.metadata }
+      const mergedMetadata = { ...(existingRowState._.metadata || {}) }
 
       // Deep merge each metadata type (e.g., ai_field)
       Object.keys(metadata).forEach((metadataType) => {

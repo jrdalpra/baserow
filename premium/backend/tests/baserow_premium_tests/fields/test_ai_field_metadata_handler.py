@@ -81,3 +81,41 @@ def test_ai_field_metadata_handler_set_error(premium_data_fixture):
         == "Test error message"
     )
     assert metadata[AIMetadataKeys.ERROR][AIMetadataKeys.ERROR_TYPE] == "ValueError"
+
+
+@pytest.mark.django_db
+@pytest.mark.field_ai
+def test_ai_field_metadata_handler_clear_metadata_for_rows(premium_data_fixture):
+    user = premium_data_fixture.create_user()
+    table = premium_data_fixture.create_database_table(user=user)
+    ai_field = premium_data_fixture.create_ai_field(table=table, name="AI")
+
+    model = table.get_model()
+    row1 = model.objects.create()
+    row2 = model.objects.create()
+    row3 = model.objects.create()
+
+    AIFieldMetadataHandler.set_generating_for_rows(
+        ai_field, [row1.id, row2.id, row3.id]
+    )
+
+    row1.refresh_from_db()
+    row2.refresh_from_db()
+    row3.refresh_from_db()
+    assert FieldMetadataHandler.get_metadata(row1, ai_field.id) is not None
+    assert FieldMetadataHandler.get_metadata(row2, ai_field.id) is not None
+    assert FieldMetadataHandler.get_metadata(row3, ai_field.id) is not None
+
+    AIFieldMetadataHandler.clear_metadata_for_rows(ai_field, [row2.id, row3.id])
+
+    row1.refresh_from_db()
+    row2.refresh_from_db()
+    row3.refresh_from_db()
+
+    assert FieldMetadataHandler.get_metadata(row1, ai_field.id) is not None
+    assert (
+        FieldMetadataHandler.get_metadata(row1, ai_field.id)[AIMetadataKeys.STATUS]
+        == AIGenerationStatus.GENERATING
+    )
+    assert FieldMetadataHandler.get_metadata(row2, ai_field.id) is None
+    assert FieldMetadataHandler.get_metadata(row3, ai_field.id) is None

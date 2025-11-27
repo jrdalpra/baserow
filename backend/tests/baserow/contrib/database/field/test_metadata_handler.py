@@ -243,3 +243,59 @@ def test_metadata_atomicity(data_fixture):
 
     assert metadata["status"] == "success"
     assert metadata["attempt"] == 2
+
+
+@pytest.mark.row_metadata
+@pytest.mark.django_db
+def test_bulk_delete_field_metadata_for_rows(data_fixture):
+    user = data_fixture.create_user()
+    table = data_fixture.create_database_table(user=user)
+    field = data_fixture.create_text_field(table=table)
+
+    model = table.get_model()
+    row1 = model.objects.create()
+    row2 = model.objects.create()
+    row3 = model.objects.create()
+
+    FieldMetadataHandler.set_metadata(
+        model, row1.id, field.id, {"status": "generating"}
+    )
+    FieldMetadataHandler.set_metadata(
+        model, row2.id, field.id, {"status": "generating"}
+    )
+    FieldMetadataHandler.set_metadata(
+        model, row3.id, field.id, {"status": "generating"}
+    )
+
+    FieldMetadataHandler.bulk_delete_field_metadata_for_rows(
+        model, field.id, [row2.id, row3.id]
+    )
+
+    row1.refresh_from_db()
+    row2.refresh_from_db()
+    row3.refresh_from_db()
+
+    assert FieldMetadataHandler.get_metadata(row1, field.id) == {"status": "generating"}
+    assert FieldMetadataHandler.get_metadata(row2, field.id) is None
+    assert FieldMetadataHandler.get_metadata(row3, field.id) is None
+
+
+@pytest.mark.row_metadata
+@pytest.mark.django_db
+def test_bulk_delete_field_metadata_for_rows_preserves_other_fields(data_fixture):
+    user = data_fixture.create_user()
+    table = data_fixture.create_database_table(user=user)
+    field1 = data_fixture.create_text_field(table=table)
+    field2 = data_fixture.create_text_field(table=table)
+
+    model = table.get_model()
+    row = model.objects.create()
+
+    FieldMetadataHandler.set_metadata(model, row.id, field1.id, {"a": 1})
+    FieldMetadataHandler.set_metadata(model, row.id, field2.id, {"b": 2})
+
+    FieldMetadataHandler.bulk_delete_field_metadata_for_rows(model, field1.id, [row.id])
+
+    row.refresh_from_db()
+    assert FieldMetadataHandler.get_metadata(row, field1.id) is None
+    assert FieldMetadataHandler.get_metadata(row, field2.id) == {"b": 2}

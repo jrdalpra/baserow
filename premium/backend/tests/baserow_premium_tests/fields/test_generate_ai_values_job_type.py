@@ -11,9 +11,8 @@ from baserow_premium.fields.models import GenerateAIValuesJob
 
 from baserow.contrib.database.fields.exceptions import FieldDoesNotExist
 from baserow.contrib.database.fields.handler import FieldHandler
-from baserow.contrib.database.rows.exceptions import RowDoesNotExist
-from baserow.contrib.database.fields.handler import FieldHandler
 from baserow.contrib.database.fields.metadata_handler import FieldMetadataHandler
+from baserow.contrib.database.rows.exceptions import RowDoesNotExist
 from baserow.contrib.database.rows.handler import RowHandler
 from baserow.contrib.database.views.exceptions import ViewDoesNotExist
 from baserow.core.generative_ai.exceptions import GenerativeAIPromptError

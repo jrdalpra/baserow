@@ -288,6 +288,42 @@ class FieldMetadataHandler:
         )
 
     @classmethod
+    def bulk_delete_field_metadata_for_rows(
+        cls,
+        model: type[GeneratedTableModel],
+        field_id: int,
+        row_ids: list[int],
+    ):
+        """
+        Remove metadata for a specific field for specific rows only.
+
+        Uses PostgreSQL's - operator to remove a key from JSONB atomically.
+
+        :param model: The generated table model class
+        :param field_id: The field ID to remove metadata for
+        :param row_ids: List of row IDs to clear metadata for
+        """
+
+        if not cls.is_metadata_enabled(model):
+            return
+
+        if not row_ids:
+            return
+
+        field_id_str = str(field_id)
+
+        model.objects.filter(
+            id__in=row_ids,
+            **{f"{cls.METADATA_COLUMN}__has_key": field_id_str},
+        ).update(
+            **{
+                cls.METADATA_COLUMN: JSONBRemoveKey(
+                    F(cls.METADATA_COLUMN), Value(field_id_str)
+                )
+            }
+        )
+
+    @classmethod
     def clear_row_metadata(cls, model: type[GeneratedTableModel], row_id: int):
         """
         Clear all metadata for a specific row.

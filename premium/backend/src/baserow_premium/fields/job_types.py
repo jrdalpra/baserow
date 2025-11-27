@@ -1,6 +1,6 @@
-from django.db import transaction
 from typing import Type
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from baserow_premium.generative_ai.managers import AIFileManager
@@ -37,7 +37,7 @@ from baserow.core.handler import CoreHandler
 from baserow.core.job_types import _empty_transaction_context
 from baserow.core.jobs.exceptions import MaxJobCountExceeded
 from baserow.core.jobs.registries import JobType
-from baserow.core.utils import ChildProgressBuilder
+from baserow.core.utils import ChildProgressBuilder, grouper
 
 from .ai_field_metadata import AIFieldMetadataHandler
 from .models import AIField, GenerateAIValuesJob
@@ -60,6 +60,7 @@ class GenerateAIValuesJobType(JobType):
     type = "generate_ai_values"
     model_class = GenerateAIValuesJob
     max_count = 3
+    AI_GENERATION_BATCH_SIZE = 50
 
     api_exceptions_map = {
         UserNotInWorkspace: ERROR_USER_NOT_IN_GROUP,
@@ -255,7 +256,7 @@ class GenerateAIValuesJobType(JobType):
         if job.mode == GenerateAIValuesJob.MODES.VIEW:
             rows = self._get_view_queryset(user, job.view_id, table.id)
         elif job.mode == GenerateAIValuesJob.MODES.TABLE:
-            rows = model.objects.all()
+            rows = model.objects.all().order_by("id")
         elif job.mode == GenerateAIValuesJob.MODES.ROWS:
             req_row_ids = job.row_ids
             rows = RowHandler().get_rows(model, req_row_ids)
@@ -286,124 +287,120 @@ class GenerateAIValuesJobType(JobType):
 
         ai_output_type = ai_field_output_registry.get(ai_field.ai_output_type)
 
-        # Check if metadata tracking is enabled for this table
         has_metadata_column = FieldMetadataHandler.is_metadata_enabled(model)
 
-        # Get all row IDs that will be processed and mark them as generating
-        # This happens BEFORE the loop so users see the generating state immediately
-        if has_metadata_column:
-            row_ids = list(rows.values_list("id", flat=True))
-            if row_ids:
-                AIFieldMetadataHandler.set_generating_for_rows(ai_field, row_ids)
-                rows_metadata_updated.send(
-                    sender=self,
-                    table=table,
-                    row_ids=row_ids,
-                    user=user,
-                )
+        total_rows = rows.count()
 
         progress_builder = progress.create_child_builder(
             represents_progress=progress.total
         )
-        rows_progress = ChildProgressBuilder.build(progress_builder, rows.count())
+        rows_progress = ChildProgressBuilder.build(progress_builder, total_rows)
 
-        for row in rows.iterator(chunk_size=200):
-            context = HumanReadableRowContext(row, exclude_field_ids=[ai_field.id])
-            message = str(
-                resolve_formula(
-                    ai_field.ai_prompt, formula_runtime_function_registry, context
+        if total_rows == 0:
+            return
+
+        row_iterator = rows.iterator(chunk_size=self.AI_GENERATION_BATCH_SIZE)
+
+        for batch_rows in grouper(self.AI_GENERATION_BATCH_SIZE, row_iterator):
+            batch_row_ids = [row.id for row in batch_rows]
+
+            if has_metadata_column:
+                AIFieldMetadataHandler.set_generating_for_rows(ai_field, batch_row_ids)
+                rows_metadata_updated.send(
+                    sender=self,
+                    table=table,
+                    row_ids=batch_row_ids,
+                    user=user,
                 )
-            )
 
-            # The AI output type should be able to format the prompt because it can add
-            # additional instructions to it. The choice output type for example adds
-            # additional prompt trying to force the out, for example.
-            message = ai_output_type.format_prompt(message, ai_field)
-
-            try:
-                if ai_field.ai_file_field_id is not None and isinstance(
-                    generative_ai_model_type, GenerativeAIWithFilesModelType
-                ):
-                    file_ids = AIFileManager.upload_files_from_file_field(
-                        ai_field, row, generative_ai_model_type, workspace=workspace
+            for idx, row in enumerate(batch_rows):
+                context = HumanReadableRowContext(row, exclude_field_ids=[ai_field.id])
+                message = str(
+                    resolve_formula(
+                        ai_field.ai_prompt, formula_runtime_function_registry, context
                     )
-                    try:
-                        value = generative_ai_model_type.prompt_with_files(
+                )
+
+                message = ai_output_type.format_prompt(message, ai_field)
+
+                try:
+                    if ai_field.ai_file_field_id is not None and isinstance(
+                        generative_ai_model_type, GenerativeAIWithFilesModelType
+                    ):
+                        file_ids = AIFileManager.upload_files_from_file_field(
+                            ai_field, row, generative_ai_model_type, workspace=workspace
+                        )
+                        try:
+                            value = generative_ai_model_type.prompt_with_files(
+                                ai_field.ai_generative_ai_model,
+                                message,
+                                file_ids=file_ids,
+                                workspace=workspace,
+                                temperature=ai_field.ai_temperature,
+                            )
+                        finally:
+                            generative_ai_model_type.delete_files(
+                                file_ids, workspace=workspace
+                            )
+                    else:
+                        value = generative_ai_model_type.prompt(
                             ai_field.ai_generative_ai_model,
                             message,
-                            file_ids=file_ids,
                             workspace=workspace,
                             temperature=ai_field.ai_temperature,
                         )
-                    except Exception as exc:
-                        raise exc
-                    finally:
-                        generative_ai_model_type.delete_files(
-                            file_ids, workspace=workspace
-                        )
-                else:
-                    value = generative_ai_model_type.prompt(
-                        ai_field.ai_generative_ai_model,
-                        message,
-                        workspace=workspace,
-                        temperature=ai_field.ai_temperature,
-                    )
 
-                # Because the AI output type can change the prompt to try to force the
-                # output a certain way, then it should give the opportunity to parse the
-                # output when it's given. With the choice output type, it will try to
-                # match it to a `SelectOption`, for example.
-                value = ai_output_type.parse_output(value, ai_field)
-            except Exception as exc:
-                # Mark as error and notify websocket subscribers
-                # Wrap in transaction so the signal handler's on_commit works properly
-                if has_metadata_column:
-                    with transaction.atomic():
-                        AIFieldMetadataHandler.set_error(
-                            model,
-                            row.id,
-                            ai_field.id,
-                            str(exc),
-                            exc.__class__.__name__,
-                        )
+                    value = ai_output_type.parse_output(value, ai_field)
+                except Exception as exc:
+                    if has_metadata_column:
+                        with transaction.atomic():
+                            AIFieldMetadataHandler.set_error(
+                                model,
+                                row.id,
+                                ai_field.id,
+                                str(exc),
+                                exc.__class__.__name__,
+                            )
 
+                            remaining_ids = [r.id for r in batch_rows[idx + 1 :]]
+                            if remaining_ids:
+                                AIFieldMetadataHandler.clear_metadata_for_rows(
+                                    ai_field, remaining_ids
+                                )
+
+                        all_affected_ids = [row.id] + remaining_ids
                         rows_metadata_updated.send(
                             sender=self,
                             table=table,
-                            row_ids=[row.id],
+                            row_ids=all_affected_ids,
                             user=user,
                         )
 
-                # If the prompt fails once, we should not continue with the other rows.
-                # Note: rows might be a generator, so we can't slice it
-                rows_ai_values_generation_error.send(
-                    self,
-                    user=user,
-                    rows=[],
-                    field=ai_field,
-                    table=table,
-                    error_message=str(exc),
-                )
-                raise exc
+                    rows_ai_values_generation_error.send(
+                        self,
+                        user=user,
+                        rows=[],
+                        field=ai_field,
+                        table=table,
+                        error_message=str(exc),
+                    )
+                    raise exc
 
-            # Update row value and mark as success in the same transaction
-            # This ensures the websocket signal includes the correct metadata
-            with transaction.atomic():
-                # Mark as success BEFORE sending the signal
-                if has_metadata_column:
-                    AIFieldMetadataHandler.set_success(model, row.id, ai_field.id)
+                with transaction.atomic():
+                    if has_metadata_column:
+                        AIFieldMetadataHandler.set_success(model, row.id, ai_field.id)
 
-                # FIXME: manually set the websocket_id to None for now because the frontend
-                # needs to receive the update to stop the loading state
-                user.web_socket_id = None
+                    original_web_socket_id = getattr(user, "web_socket_id", None)
+                    user.web_socket_id = None
 
-                # Update row value - this triggers rows_updated signal
-                RowHandler().update_row_by_id(
-                    user,
-                    table,
-                    row.id,
-                    {ai_field.db_column: value},
-                    model=model,
-                    values_already_prepared=True,
-                )
-            rows_progress.increment()
+                    RowHandler().update_row_by_id(
+                        user,
+                        table,
+                        row.id,
+                        {ai_field.db_column: value},
+                        model=model,
+                        values_already_prepared=True,
+                    )
+
+                    user.web_socket_id = original_web_socket_id
+                rows_progress.increment()

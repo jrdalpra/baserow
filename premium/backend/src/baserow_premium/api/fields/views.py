@@ -1,7 +1,6 @@
 from django.db import transaction
 
 from baserow_premium.fields.actions import GenerateFormulaWithAIActionType
-from baserow_premium.fields.handler import AIFieldHandler
 from baserow_premium.fields.job_types import GenerateAIValuesJobType
 from baserow_premium.fields.models import AIField
 from baserow_premium.license.features import PREMIUM

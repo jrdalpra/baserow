@@ -185,6 +185,37 @@ class AIFieldMetadataHandler:
         return True
 
     @classmethod
+    def clear_metadata_for_rows(
+        cls,
+        ai_field: "AIField",
+        row_ids: list[int],
+    ):
+        """
+        Clear AI field metadata for specific rows.
+
+        This is used to remove "generating" status from rows that were not
+        processed due to an error in an earlier row within the same batch.
+
+        :param ai_field: The AI field
+        :param row_ids: List of row IDs to clear metadata for
+        :return: True if metadata was cleared, False if metadata is disabled
+        """
+
+        model = ai_field.table.get_model()
+
+        if not FieldMetadataHandler.is_metadata_enabled(model):
+            return False
+
+        if not row_ids:
+            return True
+
+        FieldMetadataHandler.bulk_delete_field_metadata_for_rows(
+            model, ai_field.id, row_ids
+        )
+
+        return True
+
+    @classmethod
     def broadcast_generation_started(
         cls,
         ai_field: "AIField",
