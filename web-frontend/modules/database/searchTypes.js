@@ -9,8 +9,12 @@ export class DatabaseSearchType extends BaseSearchType {
     this.priority = 1
   }
 
+  _getApplicationId(result) {
+    return result?.metadata?.database_id || result?.id
+  }
+
   _getApplicationWithTables(result, context) {
-    const databaseId = result?.metadata?.database_id || result?.id
+    const databaseId = this._getApplicationId(result)
     if (!databaseId || !context?.store) {
       return null
     }
@@ -27,29 +31,17 @@ export class DatabaseSearchType extends BaseSearchType {
       return null
     }
 
-    const databaseId = result?.metadata?.database_id || result?.id
-    const tables = application.tables
-      .map((t) => t)
-      .sort((a, b) => a.order - b.order)
+    const databaseId = this._getApplicationId(result)
+    const tables = [...application.tables].sort((a, b) => a.order - b.order)
 
-    return `/database/${databaseId}/table/${tables[0].id}`
+    return {
+      name: 'database-table',
+      params: { databaseId, tableId: tables[0].id },
+    }
   }
 
   isNavigable(result, context = null) {
     return this._getApplicationWithTables(result, context) !== null
-  }
-
-  focusInSidebar(result, context = null) {
-    const databaseId = result?.metadata?.database_id || result?.id
-    if (!databaseId || !context?.store) {
-      return false
-    }
-    const application = context.store.getters['application/get'](databaseId)
-    if (application) {
-      context.store.dispatch('application/select', application)
-      return true
-    }
-    return false
   }
 }
 
@@ -71,7 +63,13 @@ export class DatabaseTableSearchType extends BaseSearchType {
       return null
     }
 
-    return `/database/${result.metadata.database_id}/table/${result.metadata.table_id}`
+    return {
+      name: 'database-table',
+      params: {
+        databaseId: result.metadata.database_id,
+        tableId: result.metadata.table_id,
+      },
+    }
   }
 }
 
@@ -93,7 +91,13 @@ export class DatabaseFieldSearchType extends BaseSearchType {
       return null
     }
 
-    return `/database/${result.metadata.database_id}/table/${result.metadata.table_id}`
+    return {
+      name: 'database-table',
+      params: {
+        databaseId: result.metadata.database_id,
+        tableId: result.metadata.table_id,
+      },
+    }
   }
 }
 
@@ -116,6 +120,13 @@ export class DatabaseRowSearchType extends BaseSearchType {
       return null
     }
 
-    return `/database/${result.metadata.database_id}/table/${result.metadata.table_id}/row/${result.metadata.row_id}`
+    return {
+      name: 'database-table-row',
+      params: {
+        databaseId: result.metadata.database_id,
+        tableId: result.metadata.table_id,
+        rowId: result.metadata.row_id,
+      },
+    }
   }
 }

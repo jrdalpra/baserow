@@ -9,8 +9,12 @@ export class AutomationSearchType extends BaseSearchType {
     this.priority = 4
   }
 
+  _getApplicationId(result) {
+    return result?.metadata?.application_id || result?.id
+  }
+
   _getApplicationWithWorkflows(result, context) {
-    const appId = result?.metadata?.application_id || result?.id
+    const appId = this._getApplicationId(result)
     if (!appId || !context?.store) {
       return null
     }
@@ -27,27 +31,16 @@ export class AutomationSearchType extends BaseSearchType {
       return null
     }
 
-    const appId = result?.metadata?.application_id || result?.id
     const workflows = [...automation.workflows].sort(
       (a, b) => a.order - b.order
     )
-    return `/automation/${appId}/workflow/${workflows[0].id}`
+    return {
+      name: 'automation-workflow',
+      params: { automationId: automation.id, workflowId: workflows[0].id },
+    }
   }
 
   isNavigable(result, context = null) {
     return this._getApplicationWithWorkflows(result, context) !== null
-  }
-
-  focusInSidebar(result, context = null) {
-    const appId = result?.metadata?.application_id || result?.id
-    if (!appId || !context?.store) {
-      return false
-    }
-    const application = context.store.getters['application/get'](appId)
-    if (application) {
-      context.store.dispatch('application/select', application)
-      return true
-    }
-    return false
   }
 }
