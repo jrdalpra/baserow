@@ -18,6 +18,18 @@ backend *args:
 alias b := backend
 
 # =============================================================================
+# Web-Frontend
+# =============================================================================
+
+# Run any web-frontend command (e.g., just f lint, just f test)
+[doc("Run frontend command: just f <cmd>")]
+frontend *args:
+    @just --justfile web-frontend/justfile --working-directory web-frontend {{ args }}
+
+# Shortcut alias for frontend
+alias f := frontend
+
+# =============================================================================
 # Docker Compose
 # =============================================================================
 
@@ -199,18 +211,22 @@ env-clear:
 # Initialize everything
 init:
     @just b init
+    @just f install
 
-# Run all linters
+# Run all linters (backend + frontend)
 lint:
     @just b lint
+    @just f lint
 
-# Run all tests
+# Run all tests (backend + frontend)
 test:
     @just b test
+    @just f test
 
-# Fix all code style
+# Fix all code style (backend + frontend)
 fix:
     @just b fix
+    @just f fix
 
 # =============================================================================
 # Test Database (ramdisk for fast tests)

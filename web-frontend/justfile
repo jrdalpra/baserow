@@ -1,0 +1,80 @@
+# Baserow Web-Frontend Justfile
+# Uses yarn for Node.js package management
+
+# Default recipe - show help
+default:
+    @just --list
+
+# =============================================================================
+# Setup & Installation
+# =============================================================================
+
+# Install dependencies
+install:
+    yarn install
+
+# =============================================================================
+# Code Quality & Linting
+# =============================================================================
+
+# Run all linters (eslint + stylelint)
+lint:
+    yarn run eslint
+    yarn run stylelint
+    yarn run prettier --check 'modules/**/*.scss'
+
+# Fix code style issues
+fix:
+    yarn run fix
+
+# Format SCSS files with Prettier
+format-scss:
+    yarn run prettier --write 'modules/**/*.scss'
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Run tests
+test *ARGS:
+    yarn test {{ ARGS }}
+
+# Run tests with coverage (for CI)
+ci-test:
+    yarn test-coverage
+
+# Update Jest snapshots
+update-snapshots:
+    yarn run jest --updateSnapshot
+
+# =============================================================================
+# Development
+# =============================================================================
+
+# Run development server
+run-dev-server:
+    yarn run dev
+
+# Run Storybook
+storybook:
+    yarn run storybook
+
+# Build for local development
+build-local:
+    yarn run build-local
+
+# Build for production
+build-prod:
+    yarn run build
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+# Clean build artifacts
+clean:
+    rm -rf .nuxt/ dist/
+
+# Clean all (build artifacts + node_modules)
+clean-all: clean
+    rm -rf node_modules/
