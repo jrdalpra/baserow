@@ -16,9 +16,8 @@ Use `just` from project root or `backend/` directory:
 ```bash
 # Backend (from project root)
 just b init          # Initialize backend venv
-just b lint          # Run linters (flake8, black, isort, bandit)
-just b format        # Format code with black
-just b sort          # Sort imports with isort
+just b lint          # Run linter (ruff)
+just b format        # Format code with ruff
 just b fix           # Fix all (sort + format)
 just b test          # Run tests
 just b test -n=auto  # Run tests in parallel
