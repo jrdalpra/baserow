@@ -1,14 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-from baserow_premium.row_comments.operations import (
-    CreateRowCommentsOperationType,
-    DeleteRowCommentsOperationType,
-    ReadRowCommentsOperationType,
-    RestoreRowCommentOperationType,
-    UpdateRowCommentsOperationType,
-)
-
 from baserow.contrib.automation.nodes.operations import (
     CreateAutomationNodeOperationType,
     DeleteAutomationNodeOperationType,
@@ -298,6 +290,13 @@ from baserow_enterprise.teams.operations import (
     ReadTeamSubjectOperationType,
     RestoreTeamOperationType,
     UpdateTeamOperationType,
+)
+from baserow_premium.row_comments.operations import (
+    CreateRowCommentsOperationType,
+    DeleteRowCommentsOperationType,
+    ReadRowCommentsOperationType,
+    RestoreRowCommentOperationType,
+    UpdateRowCommentsOperationType,
 )
 
 default_roles = {

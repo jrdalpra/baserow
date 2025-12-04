@@ -3,14 +3,13 @@ from django.contrib.auth.models import AbstractUser
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from baserow_premium.license.features import PREMIUM
-from baserow_premium.license.handler import LicenseHandler
-from baserow_premium.views.models import OWNERSHIP_TYPE_PERSONAL
-
 from baserow.contrib.database.views import signals as view_signals
 from baserow.contrib.database.views.models import OWNERSHIP_TYPE_COLLABORATIVE
 from baserow.core.exceptions import PermissionDenied
 from baserow.core.models import Workspace
+from baserow_premium.license.features import PREMIUM
+from baserow_premium.license.handler import LicenseHandler
+from baserow_premium.views.models import OWNERSHIP_TYPE_PERSONAL
 
 from .handler import delete_personal_views
 

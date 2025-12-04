@@ -5,9 +5,6 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import Count, Q, QuerySet
 
-from baserow_premium.views.exceptions import CalendarViewHasNoDateField
-from baserow_premium.views.models import OWNERSHIP_TYPE_PERSONAL, TimelineView
-from baserow_premium.views.view_types import TimelineViewType
 from rest_framework.request import Request
 
 from baserow.contrib.database.api.views.utils import (
@@ -22,6 +19,9 @@ from baserow.contrib.database.views.filters import AdHocFilters
 from baserow.contrib.database.views.handler import ViewHandler
 from baserow.contrib.database.views.models import View
 from baserow.contrib.database.views.registries import view_type_registry
+from baserow_premium.views.exceptions import CalendarViewHasNoDateField
+from baserow_premium.views.models import OWNERSHIP_TYPE_PERSONAL, TimelineView
+from baserow_premium.views.view_types import TimelineViewType
 
 
 def get_rows_grouped_by_single_select_field(

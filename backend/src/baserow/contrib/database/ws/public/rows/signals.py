@@ -177,9 +177,9 @@ def public_rows_updated(
         "old_rows_public_views"
     ]
     existing_checker = before_return_dict["caching_row_checker"]
-    public_view_rows: List[
-        PublicViewRows
-    ] = existing_checker.get_public_views_where_rows_are_visible(rows)
+    public_view_rows: List[PublicViewRows] = (
+        existing_checker.get_public_views_where_rows_are_visible(rows)
+    )
 
     view_slug_to_updated_public_view_rows = {
         view.view.slug: view for view in public_view_rows

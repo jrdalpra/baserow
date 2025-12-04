@@ -364,9 +364,9 @@ class ViewType(
                 ).select_related("user")
 
                 for workspaceuser in workspaceusers_from_workspace:
-                    id_mapping["owned_by"][
-                        workspaceuser.user.email
-                    ] = workspaceuser.user
+                    id_mapping["owned_by"][workspaceuser.user.email] = (
+                        workspaceuser.user
+                    )
 
         try:
             ownership_type = view_ownership_type_registry.get(
@@ -414,9 +414,9 @@ class ViewType(
                 filter_group_object = ViewFilterGroup.objects.create(
                     view=view, **filter_group_copy
                 )
-                id_mapping["database_view_filter_groups"][
-                    filter_group_id
-                ] = filter_group_object.id
+                id_mapping["database_view_filter_groups"][filter_group_id] = (
+                    filter_group_object.id
+                )
 
             for view_filter in filters:
                 view_filter_type = view_filter_type_registry.get(view_filter["type"])
@@ -425,10 +425,10 @@ class ViewType(
                 view_filter_copy["field_id"] = id_mapping["database_fields"][
                     view_filter_copy["field_id"]
                 ]
-                view_filter_copy[
-                    "value"
-                ] = view_filter_type.set_import_serialized_value(
-                    view_filter_copy["value"], id_mapping
+                view_filter_copy["value"] = (
+                    view_filter_type.set_import_serialized_value(
+                        view_filter_copy["value"], id_mapping
+                    )
                 )
                 if view_filter.get("group", None):
                     view_filter_copy["group_id"] = id_mapping[
@@ -437,9 +437,9 @@ class ViewType(
                 view_filter_object = ViewFilter.objects.create(
                     view=view, **view_filter_copy
                 )
-                id_mapping["database_view_filters"][
-                    view_filter_id
-                ] = view_filter_object.id
+                id_mapping["database_view_filters"][view_filter_id] = (
+                    view_filter_object.id
+                )
 
         if self.can_sort:
             for view_sorting in sortings:
@@ -461,9 +461,9 @@ class ViewType(
                 view_group_by_object = ViewGroupBy.objects.create(
                     view=view, **view_group_by_copy
                 )
-                id_mapping["database_view_group_bys"][
-                    view_group_by_id
-                ] = view_group_by_object.id
+                id_mapping["database_view_group_bys"][view_group_by_id] = (
+                    view_group_by_object.id
+                )
 
         if self.can_decorate:
             for view_decoration in decorations:
@@ -489,9 +489,9 @@ class ViewType(
                 view_decoration_object = ViewDecoration.objects.create(
                     view=view, **view_decoration_copy
                 )
-                id_mapping["database_view_decorations"][
-                    view_decoration_id
-                ] = view_decoration_object.id
+                id_mapping["database_view_decorations"][view_decoration_id] = (
+                    view_decoration_object.id
+                )
 
         return view
 
@@ -793,8 +793,7 @@ class ViewType(
         """
 
         raise NotImplementedError(
-            "An exportable or publicly sharable view must implement "
-            "`get_hidden_fields`"
+            "An exportable or publicly sharable view must implement `get_hidden_fields`"
         )
 
     def after_field_moved_between_tables(self, field: "Field", original_table_id: int):

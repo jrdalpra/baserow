@@ -3815,9 +3815,9 @@ class CachingPublicViewRowChecker:
         for view, filter_qs, can_use_cache in self._views_with_filters:
             if can_use_cache:
                 if row.id not in self._view_row_check_cache[view.id]:
-                    self._view_row_check_cache[view.id][
-                        row.id
-                    ] = self._check_row_visible(filter_qs, row)
+                    self._view_row_check_cache[view.id][row.id] = (
+                        self._check_row_visible(filter_qs, row)
+                    )
                 if self._view_row_check_cache[view.id][row.id]:
                     views.append(view)
             elif self._check_row_visible(filter_qs, row):

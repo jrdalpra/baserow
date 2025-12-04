@@ -2,7 +2,6 @@ from typing import Type
 
 from django.db.models import QuerySet
 
-from baserow_premium.generative_ai.managers import AIFileManager
 from rest_framework import serializers
 
 from baserow.api.errors import ERROR_GROUP_DOES_NOT_EXIST, ERROR_USER_NOT_IN_GROUP
@@ -33,6 +32,7 @@ from baserow.core.job_types import _empty_transaction_context
 from baserow.core.jobs.exceptions import MaxJobCountExceeded
 from baserow.core.jobs.registries import JobType
 from baserow.core.utils import ChildProgressBuilder
+from baserow_premium.generative_ai.managers import AIFileManager
 
 from .models import AIField, GenerateAIValuesJob
 from .registries import ai_field_output_registry
